@@ -1,7 +1,7 @@
-/* 엔진 회귀 테스트 — 브라우저 없이 사분면 줌 로직만 검증.
+/* 엔진 회귀 테스트 — 브라우저 없이 의미 트리 탐색만 검증.
    실행: node tests/engine_test.mjs  (레포 루트에서) */
-import { WORDS, V0, POOL_DECAY, MAX_SHRINK, MAX_CHIPS, MIN_POOL, MAX_DEPTH, SEP_X, SEP_Y,
-         pos, inView, pickWords, poolSize, fitView, axisLabels } from '../app.js';
+import { WORDS, FAMS } from '../data.js';
+import { FAMILIES, LEVELS, levelOf, layout, axisLabels, localMatch } from '../engine.js';
 
 let fail = 0;
 const ok = (cond, msg) => { if (!cond) { console.error('  ✗ ' + msg); fail++; } };
@@ -13,141 +13,113 @@ ok(new Set(WORDS.map(w => w.w)).size === 434, '단어 중복 없어야 함');
 ok(WORDS.every(w => w.d && w.d.length > 2), '모든 단어에 뜻풀이가 있어야 함');
 ok(WORDS.every(w => w.v >= 1 && w.v <= 7 && w.a >= 1 && w.a <= 7), '평정값이 1~7 범위여야 함');
 ok(WORDS.every((w, i) => i === 0 || WORDS[i-1].p >= w.p), 'WORDS는 원형성 내림차순이어야 함');
-// 논문 표 4 체크섬
+// 논문 표 4 체크섬 — 추출이 틀어지면 여기서 걸린다
 const bucket = k => { const b = [0,0,0,0,0,0]; for (const w of WORDS) b[Math.floor(w[k]) - 1]++; return b.join(','); };
 ok(bucket('v') === '39,216,57,44,75,3', `쾌-불쾌 분포가 논문 표4와 같아야 함 (${bucket('v')})`);
 ok(bucket('a') === '1,42,129,143,111,8', `활성화 분포가 논문 표4와 같아야 함 (${bucket('a')})`);
 
-/* 2. 배치 규칙 — 칩은 항상 시야 안에 있고 서로 겹치지 않는다 */
-console.log('2. 배치 규칙');
-function checkLayout(view, words, label) {
-  for (const w of words) {
-    const p = pos(w, view);
-    ok(p.x >= -1e-9 && p.x <= 1 + 1e-9 && p.y >= -1e-9 && p.y <= 1 + 1e-9,
-       `${label}: ${w.w} 정규화 좌표가 [0,1] 밖 (${p.x.toFixed(3)},${p.y.toFixed(3)})`);
-    ok(inView(w, view), `${label}: ${w.w} 가 시야 밖`);
-  }
-  for (let i = 0; i < words.length; i++)
-    for (let j = i + 1; j < words.length; j++) {
-      const a = pos(words[i], view), b = pos(words[j], view);
-      ok(Math.abs(a.x - b.x) > SEP_X || Math.abs(a.y - b.y) > SEP_Y,
-         `${label}: ${words[i].w} / ${words[j].w} 칩이 겹침`);
+/* 2. 의미 계층 */
+console.log('2. 의미 계층');
+ok(FAMILIES.length === FAMS.length && FAMILIES.length >= 8,
+   `대분류가 충분해야 함 (실제 ${FAMILIES.length})`);
+ok(FAMILIES.every(f => f.kick && f.kick.length > 2), '모든 대분류에 한 줄 설명이 있어야 함');
+ok(FAMILIES.every(f => f.subs.length >= 1), '모든 대분류에 중분류가 있어야 함');
+ok(FAMILIES.every(f => f.subs.every(s => s.words.length >= 1)), '빈 중분류가 없어야 함');
+
+const totalInTree = FAMILIES.reduce((t, f) => t + f.subs.reduce((u, s) => u + s.words.length, 0), 0);
+ok(totalInTree === 434, `트리에 담긴 단어가 434개여야 함 (실제 ${totalInTree})`);
+const nSub = FAMILIES.reduce((t, f) => t + f.subs.length, 0);
+
+// 대분류가 v/a 평면에 고르게 퍼져 있어야 첫 화면이 한쪽으로 쏠리지 않는다
+const q0 = new Set(FAMILIES.map(f => (f.v >= 4 ? 1 : 0) + (f.a >= 4 ? 2 : 0)));
+ok(q0.size >= 3, `첫 화면 대분류가 최소 세 사분면에 퍼져야 함 (실제 ${q0.size})`);
+
+/* 3. 배치 — 화면 안에 있고 서로 안 겹치는가 */
+console.log('3. 배치');
+function checkLayout(items, xk, yk, label) {
+  const placed = layout(items, xk, yk);
+  ok(placed.length === items.length, `${label}: 놓인 개수가 다름`);
+  for (const q of placed)
+    ok(q.x >= 0 && q.x <= 1 && q.y >= 0 && q.y <= 1,
+       `${label}: ${q.item.name || q.item.w} 좌표가 [0,1] 밖 (${q.x.toFixed(3)},${q.y.toFixed(3)})`);
+  // 완전히 같은 자리에 겹치면 칩 하나가 다른 칩을 통째로 가린다
+  for (let i = 0; i < placed.length; i++)
+    for (let j = i + 1; j < placed.length; j++) {
+      const d = Math.abs(placed[i].x - placed[j].x) + Math.abs(placed[i].y - placed[j].y);
+      ok(d > 0.02, `${label}: ${placed[i].item.name || placed[i].item.w} / ${placed[j].item.name || placed[j].item.w} 가 같은 자리`);
     }
-  ok(words.length <= MAX_CHIPS, `${label}: 칩 ${words.length}개 (최대 ${MAX_CHIPS})`);
+  return placed;
 }
 
-/* 3. 순회 — 얕은 깊이는 전수, 깊은 곳은 무작위 표본으로 종료성 확인 */
-console.log('3. 경로 순회');
-let paths = 0, maxDepth = 0, minChips = 99, endWords = new Set(), depthHist = {};
-let rises = 0, emptyQuads = [];
-const START = pickWords({...V0}, new Set());
-checkLayout({...V0}, START, 'depth0');
-ok(START.length >= 8, `첫 화면 칩이 최소 8개는 나와야 함 (실제 ${START.length})`);
-ok(new Set(START.map(w => (w.v >= V0.cx ? 1 : 0) + (w.p >= V0.cy ? 2 : 0))).size === 4,
-   '첫 화면은 네 사분면이 모두 채워져야 함');
+/* 4. 전 경로 순회 — 434개가 정확히 3단계 만에 전부 닿는가 */
+console.log('4. 전 경로 순회');
+const reached = new Set();
+let screens = 0, emptyQuadTotal = 0, minItems = 999, maxItems = 0;
 
-// 사분면별로 첫 선택을 나눠 담아, 어느 방향을 골라도 세분화 깊이가 비슷한지 본다
-const byQuad = { 좌상: [], 우상: [], 좌하: [], 우하: [] };
-const quadOf = w => (w.v >= V0.cx ? '우' : '좌') + (w.p >= V0.cy ? '상' : '하');
+const lv0 = levelOf([]);
+ok(lv0.kind === 'family' && lv0.items.length === FAMILIES.length, '0단계는 대분류 전체');
+checkLayout(lv0.items, lv0.xk, lv0.yk, 'depth0');
 
-function finish(path, depth) {
-  paths++; maxDepth = Math.max(maxDepth, depth);
-  depthHist[depth] = (depthHist[depth] || 0) + 1;
-  endWords.add(path[path.length - 1]);
-  ok(path.length === new Set(path).size, `경로에 같은 단어 반복: ${path.join(' › ')}`);
-}
+for (const fam of FAMILIES) {
+  const lv1 = levelOf([fam]);
+  ok(lv1.kind === 'sub', `${fam.name}: 1단계는 중분류여야 함`);
+  ok(lv1.items === fam.subs, `${fam.name}: 1단계 항목이 그 대분류의 중분류여야 함`);
+  checkLayout(lv1.items, lv1.xk, lv1.yk, `1단계/${fam.name}`);
 
-// 3-a. 깊이 3까지 전수 순회 (배치 규칙을 넓게 훑는다)
-const EXHAUSTIVE = 3;
-function walk(view, visited, depth, path) {
-  const words = pickWords(view, visited);
-  checkLayout(view, words, `depth${depth}`);
-  minChips = Math.min(minChips, words.length);
-  if (depth >= EXHAUSTIVE) return;
-  for (const w of words) {
-    const nvis = new Set(visited).add(w.w);
-    const nv = fitView(w, view, nvis, poolSize(view, visited));
-    // 가로축은 단계마다 바뀌므로(쾌-불쾌 ↔ 활성화) 가로 반경은 비교 대상이 아니다.
-    // 대신 세로(원형성)는 반드시 좁아지고, 앵커는 세로축 맨 위에 있어야 한다.
-    ok(nv.ry <= view.ry * MAX_SHRINK + 1e-9,
-       `depth${depth}: ${w.w} 선택 후 세로 시야가 줄지 않음`);
-    ok(nv.cy + nv.ry >= w.p - 1e-9 && w.p > nv.cy,
-       `depth${depth}: ${w.w} 가 세로축 위쪽 절반에 있지 않음`);
-    ok(nv.xk === 'v' || nv.xk === 'a', `depth${depth}: 가로축이 v/a 가 아님 (${nv.xk})`);
-    if (depth + 1 >= MAX_DEPTH || pickWords(nv, nvis).length < MIN_POOL) finish([...path, w.w], depth + 1);
-    else walk(nv, nvis, depth + 1, [...path, w.w]);
-  }
-}
-walk({...V0}, new Set(), 0, []);
+  for (const sub of fam.subs) {
+    const lv2 = levelOf([fam, sub]);
+    ok(lv2.kind === 'word', `${fam.name}/${sub.name}: 2단계는 단어여야 함`);
+    const placed = checkLayout(lv2.items, lv2.xk, lv2.yk, `2단계/${sub.name}`);
+    for (const w of lv2.items) reached.add(w.w);
 
-// 3-b. 끝까지 가는 무작위 강하 — 항상 유한 단계에 멈추는가
-let seed = 20050228;
-const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-for (let t = 0; t < 800; t++) {
-  let view = {...V0}, visited = new Set(), path = [], depth = 0, quad = null, prevP = Infinity;
-  for (;;) {
-    if (depth > MAX_DEPTH) { ok(false, `${MAX_DEPTH}단계 상한을 넘김: ${path.join(' › ')}`); break; }
-    const words = pickWords(view, visited);
-    checkLayout(view, words, `rand-depth${depth}`);
-    minChips = Math.min(minChips, words.length);
-    if (!words.length) { ok(false, `칩이 0개인 화면: ${path.join(' › ')}`); break; }
-    const w = words[Math.floor(rnd() * words.length)];
-    const below = w.p < view.cy;                     // 화면 아래쪽 = 더 정확한 말
-    if (depth === 0) quad = quadOf(w);
-    emptyQuads.push(4 - new Set(words.map(x => (x.v >= view.cx ? 1 : 0) + (x.p >= view.cy ? 2 : 0))).size);
-    const prevPool = poolSize(view, visited);
-    visited.add(w.w); view = fitView(w, view, visited, prevPool); path.push(w.w); depth++;
-    // 아래쪽 절반(더 정확한 말)을 고르면 반드시 원형성이 내려가야 한다
-    if (below && w.p >= prevP - 1e-9) rises++;
-    prevP = w.p;
-    if (depth >= MAX_DEPTH || pickWords(view, visited).length < MIN_POOL) {
-      finish(path, depth); byQuad[quad].push(depth); break;
+    // 화면이 한쪽으로만 쏠리지 않는지(예전 좌표 줌 방식의 고질병)
+    if (placed.length >= 4) {
+      const qs = new Set(placed.map(q => (q.x >= 0.5 ? 1 : 0) + (q.y >= 0.5 ? 2 : 0)));
+      emptyQuadTotal += 4 - qs.size;
+      screens++;
     }
+    minItems = Math.min(minItems, lv2.items.length);
+    maxItems = Math.max(maxItems, lv2.items.length);
   }
 }
+ok(reached.size === 434, `434개 전부 도달 가능해야 함 (실제 ${reached.size})`);
+ok(LEVELS === 3, `여정은 3단계 (실제 ${LEVELS})`);
 
-// 사분면 편중 검사. 편차 기준이 느슨한 건, 이미 원형성이 낮은(정확한) 단어에서 출발하면
-// 그 아래 남은 말이 적어 여정이 짧게 끝나는 게 오히려 자연스럽기 때문이다.
-// 흔한 말에서 출발하면 길고, 정확한 말에서 출발하면 짧다 — 결함이 아니라 의미 있는 동작.
-console.log('   첫 선택 사분면별 평균 도달 단계:');
-const means = {};
-for (const [k, arr] of Object.entries(byQuad)) {
-  means[k] = arr.length ? arr.reduce((a, b) => a + b) / arr.length : 0;
-  const n = WORDS.filter(w => quadOf(w) === k).length;
-  console.log(`     ${k} (단어 ${String(n).padStart(3)}개, 표본 ${String(arr.length).padStart(3)}) → 평균 ${means[k].toFixed(2)}단계`);
-}
-// 아래쪽을 고르면 반드시 더 정확한(원형성 낮은) 말이어야 한다 — 세로축의 의미 그 자체
-ok(rises === 0, `아래쪽을 골랐는데 원형성이 안 내려간 횟수가 0이어야 함 (실제 ${rises}회)`);
+const avgEmpty = screens ? emptyQuadTotal / screens : 0;
+ok(avgEmpty < 0.6, `단어 화면의 빈 사분면 평균이 0.6개 미만이어야 함 (실제 ${avgEmpty.toFixed(2)})`);
 
-// 이번 문제의 핵심 — 사분면이 통째로 비면 "그쪽으로 심화할 방향"이 사라진다
-const avgEmpty = emptyQuads.reduce((a, b) => a + b, 0) / emptyQuads.length;
-const allEmpty = emptyQuads.filter(x => x >= 2).length / emptyQuads.length;
-console.log(`   화면당 빈 사분면 평균 ${avgEmpty.toFixed(2)}개 · 2개 이상 빈 화면 ${(allEmpty*100).toFixed(1)}%`);
-ok(avgEmpty < 1.0, `화면당 빈 사분면이 평균 1개 미만이어야 함 (실제 ${avgEmpty.toFixed(2)})`);
-ok(allEmpty < 0.25, `사분면이 2개 이상 비는 화면이 25% 미만이어야 함 (실제 ${(allEmpty*100).toFixed(1)}%)`);
-
-const ms = Object.values(means).filter(x => x > 0);
-ok(Math.max(...ms) - Math.min(...ms) < 2.5,
-   `사분면별 평균 깊이 편차가 2.5단계 미만이어야 함 (실제 ${(Math.max(...ms) - Math.min(...ms)).toFixed(2)})`);
-
-/* 4. 축 라벨 */
-console.log('4. 축 라벨');
-const a0 = axisLabels({...V0}, 0);
-ok(a0.left.main === '안 좋음' && a0.right.main === '좋음', '0단계 가로축은 안 좋음/좋음');
-ok(a0.top.main === '누구나 쓰는 말' && a0.bottom.main === '잘 안 쓰는 말',
-   '0단계 세로축은 흔한 말/잘 안 쓰는 말');
-for (const d of [1, 2, 3, 4]) {
-  const r = V0.rx * 0.7 ** d;
-  const ax = axisLabels({ cx: 3.0, cy: 4.2, rx: r, ry: r * 0.67 }, d);
+/* 5. 축 라벨 */
+console.log('5. 축 라벨');
+for (const [items, xk, yk, tag] of [
+  [FAMILIES, 'v', 'a', '0단계'],
+  [FAMILIES[0].subs, 'v', 'a', '1단계'],
+  [FAMILIES[0].subs[0].words, 'a', 'p', '2단계'],
+]) {
+  const ax = axisLabels(items, xk, yk, 0);
   for (const k of ['left','right','top','bottom'])
-    ok(ax[k].main && ax[k].sub, `depth${d} ${k} 축 라벨 비어 있음`);
-  ok(ax.left.main !== ax.right.main, `depth${d} 좌우 축 라벨이 같으면 안 됨`);
-  ok(ax.top.main !== ax.bottom.main, `depth${d} 상하 축 라벨이 같으면 안 됨`);
+    ok(ax[k] && ax[k].main && ax[k].sub, `${tag} ${k} 축 라벨이 비어 있음`);
+  ok(ax.left.main !== ax.right.main, `${tag} 좌우 축 라벨이 같으면 안 됨`);
+  ok(ax.top.main !== ax.bottom.main, `${tag} 상하 축 라벨이 같으면 안 됨`);
+  ok(ax.xName && ax.yName, `${tag} 축 이름이 있어야 함`);
 }
+
+/* 6. 자연어 로컬 매칭 — 백엔드 없이도 뭔가는 나와야 한다 */
+console.log('6. 로컬 매칭');
+for (const text of [
+  '시험에 떨어져서 너무 속상하고 눈물이 난다',
+  '오랜만에 친구를 만나서 정말 반가웠다',
+  '남들은 다 잘 되는데 나만 뒤처지는 것 같다',
+]) {
+  const got = localMatch(text);
+  ok(got.length > 0, `"${text.slice(0, 14)}…" 에서 후보가 나와야 함`);
+  ok(got.every(w => WORDS.includes(w)), '결과는 434개 안의 단어여야 함');
+  console.log(`     "${text.slice(0, 18)}…" → ${got.slice(0, 4).map(w => w.w).join(', ')}`);
+}
+ok(localMatch('').length === 0, '빈 입력은 빈 결과');
+ok(localMatch('ㅋ').length === 0, '너무 짧은 입력은 빈 결과');
 
 console.log('\n--- 결과 ---');
-console.log(`도달 가능 경로 ${paths.toLocaleString()}개 · 최대 ${maxDepth}단계 · 종착 단어 ${endWords.size}종`);
-console.log(`단계별 종료 분포: ${JSON.stringify(depthHist)}`);
-console.log(`한 화면 최소 칩 수: ${minChips}`);
+console.log(`대분류 ${FAMILIES.length} · 중분류 ${nSub} · 단어 434 (전부 3단계로 도달)`);
+console.log(`마지막 화면 단어 수 ${minItems}~${maxItems}개 · 빈 사분면 평균 ${avgEmpty.toFixed(2)}개`);
 console.log(fail === 0 ? '✅ 전부 통과' : `❌ 실패 ${fail}건`);
 process.exit(fail === 0 ? 0 : 1);

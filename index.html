@@ -137,6 +137,43 @@ body::after{width:42vw;height:42vw;background:#dff0ff;bottom:-16vw;right:-12vw}
 .sheet .def{font-size:.97rem;line-height:1.75;color:var(--ink-soft);margin-bottom:6px}
 .sheet .meta{font-size:.74rem;color:var(--ink-faint);line-height:1.7;margin-bottom:16px}
 .sheet .acts{display:flex;gap:9px;flex-wrap:wrap}
+
+/* 대분류·중분류 칩 — 단어 칩보다 크고, 아래에 한 줄 설명이 붙는다 */
+.chip.grp{padding:11px 16px;line-height:1.3;max-width:44%}
+.chip.grp small{display:block;font-size:.7rem;font-weight:500;color:var(--ink-faint);margin-top:3px;white-space:normal}
+.chip.grp.on small{color:rgba(255,255,255,.85)}
+
+/* 자연어 입력 */
+.nl{background:var(--card);border-radius:24px;padding:20px 22px;box-shadow:var(--shadow);
+  max-width:520px;margin:0 auto 26px;text-align:left}
+.nl label{display:block;font-size:.86rem;font-weight:700;margin-bottom:9px}
+.nl label span{font-weight:500;color:var(--ink-faint)}
+.nl textarea{width:100%;border:1.5px solid var(--line);border-radius:16px;padding:12px 14px;
+  font-family:inherit;font-size:.92rem;line-height:1.65;color:var(--ink);background:#fffdfd;
+  resize:vertical;min-height:76px;outline:none;transition:border-color .2s}
+.nl textarea:focus{border-color:#f0b8d2}
+.nl-row{display:flex;align-items:center;gap:11px;margin-top:11px;flex-wrap:wrap}
+.nl-hint{font-size:.72rem;color:var(--ink-faint);line-height:1.5;flex:1;min-width:150px}
+.nl-err{margin-top:10px;font-size:.8rem;color:#c2607f;line-height:1.6}
+.btn:disabled{opacity:.6;cursor:default;transform:none}
+
+.sug{margin-top:16px;padding-top:15px;border-top:1px solid var(--line)}
+.sug-read{font-size:.92rem;line-height:1.7;color:var(--ink);margin-bottom:11px}
+.sug-lab{font-size:.74rem;color:var(--ink-faint);margin-bottom:9px}
+.sug-list,.sibs{display:flex;flex-direction:column;gap:7px}
+
+/* 목록형 칩 — 보드 밖(제안·옆의 말)에서 쓰는 납작한 형태 */
+.chip.flat{position:static;transform:none;animation:none;text-align:left;width:100%;
+  padding:11px 15px;border-radius:15px;white-space:normal;font-size:.92rem}
+.chip.flat b{font-weight:800}
+.chip.flat small{display:block;font-size:.78rem;font-weight:500;color:var(--ink-soft);margin-top:2px;line-height:1.55}
+.chip.flat:hover{background:#fff6fa}
+
+.card h4 em{font-style:normal;font-weight:500;color:var(--ink-faint)}
+.card .note{font-size:.76rem;color:var(--ink-faint);margin-top:13px;line-height:1.7}
+.card .note.mine{padding-top:9px;border-top:1px dashed var(--line)}
+.co .lab span{color:var(--ink-soft)}
+.foot-note{margin-top:22px;font-size:.8rem;color:var(--ink-faint)}
 .hint{text-align:center;font-size:.84rem;color:var(--ink-faint);padding:20px 0 4px;line-height:1.7}
 
 /* ---------- 결과 ---------- */
@@ -187,6 +224,8 @@ footer.slim p{max-width:520px;margin:0 auto 12px;font-size:.72rem}
   .axl.right{right:12px;left:auto;transform:none;text-align:right}
   .axl.bottom{left:50%;transform:translateX(-50%);text-align:center}
   .chip{padding:8px 12px;--cb:.88rem}
+  .chip.grp{max-width:46%;padding:9px 12px}
+  .chip.grp small{font-size:.64rem}
 }
 @media (max-width:640px){
   .wrap{padding:18px 12px 40px}
@@ -204,6 +243,12 @@ footer.slim p{max-width:520px;margin:0 auto 12px;font-size:.72rem}
   .board-outer{--padX:4px;padding-bottom:52px}
   .board{border-radius:22px}
   .chip{padding:7px 11px;--cb:.82rem}
+  .chip.grp{max-width:47%;padding:8px 10px}
+  .chip.grp small{display:none}          /* 좁은 화면에선 설명을 접고 이름만 */
+  .chip.flat{padding:10px 13px;font-size:.88rem}
+  .nl{padding:16px 15px;border-radius:20px}
+  /* iOS 자동 확대 방지 — .nl textarea 가 명시도에서 이기므로 여기서 다시 못박는다 */
+  .nl textarea{font-size:16px}
   .sheet{padding:18px 17px;border-radius:22px}
   .sheet h3{font-size:1.28rem}
   .sheet .acts .btn{flex:1;min-width:132px;padding:13px 14px;font-size:.9rem}
@@ -223,7 +268,7 @@ footer.slim p{max-width:520px;margin:0 auto 12px;font-size:.72rem}
 <body>
 <div class="wrap"><div id="app"></div></div>
 
-<script type="module" src="./app.js?v=1"></script>
+<script type="module" src="./app.js?v=2"></script>
 <script>
 /* 방문 알림 비콘 — GAS→텔레그램 릴레이 (메모리 reference-website-visit-beacon-pattern).
    ref에 'emomap|' 접두사로 사이트 구분. ?owner=1 접속 시 이 브라우저는 이후 알림 제외.

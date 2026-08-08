@@ -128,6 +128,11 @@ try:
         btn_bottom = c.js("Math.round(document.querySelector('[data-act=start]').getBoundingClientRect().bottom)")
         check(btn_bottom <= h, f"시작 버튼이 첫 화면 안에 보임 (버튼 하단 {btn_bottom}px ≤ 화면 {h}px)")
         check("434" in (c.js("document.body.innerText") or ""), "인트로에 434개 표기")
+        # 자연어 입력 — 실제 분석 호출은 하지 않는다(유료 경로). UI 존재만 확인.
+        check(c.js("!!document.querySelector('#note')"), "자연어 입력칸 있음")
+        check(c.js("!!document.querySelector('[data-act=analyze]')"), "'감정 찾아보기' 버튼 있음")
+        fs = c.js("parseFloat(getComputedStyle(document.querySelector('#note')).fontSize)")
+        check(w > 500 or fs >= 16, f"모바일 입력 글자 16px 이상 (iOS 자동 확대 방지) — 실제 {fs}px")
         check(c.js("!!document.querySelector('footer .backlink')"), "푸터 포트폴리오 백링크 있음")
         check("박인조" in (c.js("document.body.innerText") or ""), "푸터에 논문 출처 표기")
 
@@ -137,8 +142,11 @@ try:
         chips = c.js("document.querySelectorAll('.chip').length")
         check(chips >= 8, f"0단계 칩 {chips}개 (>=8)")
         axes = c.js("[...document.querySelectorAll('.axl')].map(e=>e.textContent)")
-        check(any("안 좋음" in a for a in axes) and any("잘 안 쓰는 말" in a for a in axes),
-              f"0단계 축 라벨이 모호한 틀: {axes}")
+        check(len(axes) == 4 and all(a.strip() for a in axes), f"0단계 축 라벨 4개: {axes}")
+        check(c.js("document.querySelectorAll('.chip.grp').length") >= 8,
+              "0단계는 대분류 칩(설명 달린 큰 칩)이어야 함")
+        check("1/3단계" in (c.js("document.querySelector('.depth-pill').textContent") or ""),
+              "3단계 여정임을 표시")
         label_checks(c, "0단계")
 
         # 칩이 보드 밖으로 안 나가는지
@@ -158,8 +166,8 @@ try:
         c.js("document.querySelector('.chip').click()")
         time.sleep(0.5)
         check(c.js("!!document.querySelector('.sheet .def')"), f"「{first}」 탭하니 뜻 카드 뜸")
-        check(c.js("!!document.querySelector('[data-act=dive]') && !!document.querySelector('[data-act=stop]')"),
-              "뜻 카드에 '좁히기'와 '내 감정이에요' 선택지 있음")
+        check(c.js("!!document.querySelector('[data-act=dive]')"),
+              "대분류 카드에 '이 갈래로' 버튼 있음")
         # 지도 화면엔 프로젝트 설명 푸터를 두지 않는다(스크롤만 잡아먹음)
         check(not c.js("!!document.querySelector('footer')"), "지도 화면에 푸터 없음")
         # 뜻 카드가 스크롤 없이 보여야 UX가 산다
@@ -169,7 +177,7 @@ try:
 
         # --- 좁히기 3회: 축이 세분화되는가 ---
         prev_axes = axes
-        for step in range(1, 4):
+        for step in range(1, 3):
             btn = c.js("!!document.querySelector('[data-act=dive]')")
             if not btn:
                 break
@@ -180,9 +188,14 @@ try:
                 break
             new_axes = c.js("[...document.querySelectorAll('.axl')].map(e=>e.textContent)")
             check(new_axes != prev_axes, f"{step}단계에서 축 라벨이 이전과 달라짐")
-            check(c.js("!!document.querySelector('.origin-label')"), f"{step}단계 원점에 고른 단어 표시")
             check(c.js("document.querySelectorAll('.trail span').length") == step,
                   f"{step}단계 여정 표시 {step}개")
+            if step == 2:
+                check(c.js("document.querySelectorAll('.chip.grp').length") == 0,
+                      "마지막 단계는 단어 칩이어야 함")
+                check(c.js("!!document.querySelector('[data-act=stop]')")
+                      or not c.js("!!document.querySelector('.sheet')"),
+                      "단어 카드엔 '이게 내 감정이에요' 버튼")
             label_checks(c, f"{step}단계")
             # 뜻 카드를 열지 않아도 바로 멈출 수 있어야 한다
             check(c.js("!!document.querySelector('[data-act=stopHere]')"),
@@ -194,8 +207,9 @@ try:
               return [...document.querySelectorAll('.chip')].filter(c=>{const r=c.getBoundingClientRect();
               return r.left<b.left-1||r.right>b.right+1;}).map(c=>c.textContent);})()""")
             check(not ov, f"{step}단계 칩이 보드 가로 범위 안 (밖: {ov})")
-            c.js("document.querySelector('.chip').click()")
-            time.sleep(0.4)
+            if c.js("!!document.querySelector('.chip')"):
+                c.js("document.querySelector('.chip').click()")
+                time.sleep(0.4)
 
         # --- 결과 화면 ---
         if not c.js("!!document.querySelector('.final-word')"):
@@ -209,12 +223,18 @@ try:
         check(c.js("!!document.querySelector('.final-word')"), "결과 화면 도달")
         check(c.js("document.querySelectorAll('.journey span').length") >= 1, "결과에 여정 경로 표시")
         check(c.js("!!document.querySelector('.bar i')"), "결과에 쾌-불쾌/활성화 막대 표시")
+        check(c.js("!!document.querySelector('.card .note.mine')"),
+              "결과에 '이 사이트가 붙인 것' 구분 표기")
+        txt = c.js("document.body.innerText") or ""
+        check("논문" in txt and "이 사이트" in txt, "논문 값과 사이트 분류를 구분해 표기")
         check(c.js("!!document.querySelector('[data-act=reset]')"), "결과에 다시하기 버튼")
 
-        # '여기서 멈추기'만으로도 결과에 닿는가
+        # '여기서 멈추기'만으로도 결과에 닿는가 (reset 은 인트로로 가므로 다시 시작해야 한다)
         c.js("document.querySelector('[data-act=reset]').click()"); time.sleep(0.6)
+        c.js("document.querySelector('[data-act=start]').click()"); time.sleep(0.7)
         c.js("document.querySelector('.chip').click()"); time.sleep(0.4)
-        c.js("document.querySelector('[data-act=dive]').click()"); time.sleep(0.7)
+        if c.js("!!document.querySelector('[data-act=dive]')"):
+            c.js("document.querySelector('[data-act=dive]').click()"); time.sleep(0.7)
         if c.js("!!document.querySelector('[data-act=stopHere]')"):
             c.js("document.querySelector('[data-act=stopHere]').click()"); time.sleep(0.6)
             check(c.js("!!document.querySelector('.final-word')"), "'여기서 멈추기'로 결과 화면 도달")
