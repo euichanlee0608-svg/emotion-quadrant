@@ -1,7 +1,7 @@
 /* 엔진 회귀 테스트 — 브라우저 없이 사분면 줌 로직만 검증.
    실행: node tests/engine_test.mjs  (레포 루트에서) */
-import { WORDS, V0, SHRINK, MAX_CHIPS, MIN_POOL, SEP_X, SEP_Y,
-         pos, inView, pickWords, poolSize, axisLabels } from '../app.js';
+import { WORDS, V0, POOL_DECAY, MAX_SHRINK, MAX_CHIPS, MIN_POOL, SEP_X, SEP_Y,
+         pos, inView, pickWords, poolSize, fitView, axisLabels } from '../app.js';
 
 let fail = 0;
 const ok = (cond, msg) => { if (!cond) { console.error('  ✗ ' + msg); fail++; } };
@@ -45,7 +45,9 @@ ok(START.length >= 8, `첫 화면 칩이 최소 8개는 나와야 함 (실제 ${
 ok(new Set(START.map(w => (w.v >= 4 ? 1 : 0) + (w.a >= 4 ? 2 : 0))).size === 4,
    '첫 화면은 네 사분면이 모두 채워져야 함');
 
-const step = (view, w) => ({ cx: w.v, cy: w.a, rx: view.rx * SHRINK, ry: view.ry * SHRINK });
+// 사분면별로 첫 선택을 나눠 담아, 어느 방향을 골라도 세분화 깊이가 비슷한지 본다
+const byQuad = { 좌상: [], 우상: [], 좌하: [], 우하: [] };
+const quadOf = w => (w.v >= V0.cx ? '우' : '좌') + (w.a >= V0.cy ? '상' : '하');
 
 function finish(path, depth) {
   paths++; maxDepth = Math.max(maxDepth, depth);
@@ -62,7 +64,12 @@ function walk(view, visited, depth, path) {
   minChips = Math.min(minChips, words.length);
   if (depth >= EXHAUSTIVE) return;
   for (const w of words) {
-    const nv = step(view, w), nvis = new Set(visited).add(w.w);
+    const nvis = new Set(visited).add(w.w);
+    const nv = fitView(w, view, nvis, poolSize(view, visited));
+    ok(nv.rx <= view.rx * MAX_SHRINK + 1e-9 && nv.ry <= view.ry * MAX_SHRINK + 1e-9,
+       `depth${depth}: ${w.w} 선택 후 시야가 충분히 줄지 않음`);
+    ok(Math.abs(nv.rx / nv.ry - view.rx / view.ry) < 1e-6,
+       `depth${depth}: ${w.w} 선택 후 가로세로 비율이 틀어짐`);
     if (pickWords(nv, nvis).length < MIN_POOL) finish([...path, w.w], depth + 1);
     else walk(nv, nvis, depth + 1, [...path, w.w]);
   }
@@ -72,19 +79,36 @@ walk({...V0}, new Set(), 0, []);
 // 3-b. 끝까지 가는 무작위 강하 — 항상 유한 단계에 멈추는가
 let seed = 20050228;
 const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-for (let t = 0; t < 600; t++) {
-  let view = {...V0}, visited = new Set(), path = [], depth = 0;
+for (let t = 0; t < 800; t++) {
+  let view = {...V0}, visited = new Set(), path = [], depth = 0, quad = null;
   for (;;) {
-    if (depth > 12) { ok(false, `종료 안 됨: ${path.join(' › ')}`); break; }
+    if (depth > 14) { ok(false, `종료 안 됨: ${path.join(' › ')}`); break; }
     const words = pickWords(view, visited);
     checkLayout(view, words, `rand-depth${depth}`);
     minChips = Math.min(minChips, words.length);
     if (!words.length) { ok(false, `칩이 0개인 화면: ${path.join(' › ')}`); break; }
     const w = words[Math.floor(rnd() * words.length)];
-    view = step(view, w); visited.add(w.w); path.push(w.w); depth++;
-    if (pickWords(view, visited).length < MIN_POOL) { finish(path, depth); break; }
+    if (depth === 0) quad = quadOf(w);
+    const prevPool = poolSize(view, visited);
+    visited.add(w.w); view = fitView(w, view, visited, prevPool); path.push(w.w); depth++;
+    if (pickWords(view, visited).length < MIN_POOL) {
+      finish(path, depth); byQuad[quad].push(depth); break;
+    }
   }
 }
+
+// 사분면 편중 검사 — 단어 수가 175개(좌상)~35개(우하)로 5배 차이나도
+// 적응적 줌 덕에 평균 도달 깊이가 크게 벌어지면 안 된다
+console.log('   첫 선택 사분면별 평균 도달 단계:');
+const means = {};
+for (const [k, arr] of Object.entries(byQuad)) {
+  means[k] = arr.length ? arr.reduce((a, b) => a + b) / arr.length : 0;
+  const n = WORDS.filter(w => quadOf(w) === k).length;
+  console.log(`     ${k} (단어 ${String(n).padStart(3)}개, 표본 ${String(arr.length).padStart(3)}) → 평균 ${means[k].toFixed(2)}단계`);
+}
+const ms = Object.values(means).filter(x => x > 0);
+ok(Math.max(...ms) - Math.min(...ms) < 2.0,
+   `사분면별 평균 깊이 편차가 2단계 미만이어야 함 (실제 ${(Math.max(...ms) - Math.min(...ms)).toFixed(2)})`);
 
 /* 4. 축 라벨 */
 console.log('4. 축 라벨');
@@ -92,7 +116,7 @@ const a0 = axisLabels({...V0}, 0);
 ok(a0.left.main === '안 좋음' && a0.right.main === '좋음', '0단계 가로축은 안 좋음/좋음');
 ok(a0.top.main === '심함' && a0.bottom.main === '약함', '0단계 세로축은 심함/약함');
 for (const d of [1, 2, 3, 4]) {
-  const r = V0.rx * SHRINK ** d;
+  const r = V0.rx * 0.7 ** d;
   const ax = axisLabels({ cx: 3.0, cy: 4.5, rx: r, ry: r }, d);
   for (const k of ['left','right','top','bottom'])
     ok(ax[k].main && ax[k].sub, `depth${d} ${k} 축 라벨 비어 있음`);

@@ -1,13 +1,20 @@
 /* 감정의 사분면 — 재귀 줌 엔진
    좌표계: v = 쾌-불쾌(1 불쾌 ~ 7 쾌), a = 활성화(1 비활성 ~ 7 활성).
    화면 배치는 단어의 실제 평정값 그대로다(임의 배치 아님).
-   단어를 고르면 그 단어가 새 원점이 되고 보는 범위가 SHRINK 배로 좁아진다. */
+   단어를 고르면 그 단어가 새 원점이 되고, 남은 후보 수를 기준으로 보는 범위가 좁아진다. */
 import { WORDS } from './data.js';
 
 // 원점은 7점 척도의 중립값 4.0에 두되, 반경은 실제 데이터(v 1.29~6.24, a 1.90~6.66)를
 // 딱 덮을 만큼만 잡는다 — 전체 1~7로 잡으면 데이터가 없는 가장자리가 빈 채로 남는다.
 const V0 = { cx: 4.0, cy: 4.0, rx: 2.75, ry: 2.7 };
-const SHRINK = 0.55;      // 한 단계 내려갈 때 시야 축소 비율
+// 시야는 고정 비율이 아니라 "남은 후보 수"에 맞춰 좁힌다.
+// 434개는 불쾌 쪽에 71.9%(312개)가 쏠려 있어(쾌·저활성은 35개뿐) 고정 비율로 좁히면
+// 어느 방향을 골랐느냐에 따라 세분화 깊이가 딴판이 된다. 후보 수를 목표로 삼으면
+// 밀도와 무관하게 매 단계 비슷한 만큼씩 좁혀진다.
+const POOL_DECAY = 0.35;  // 한 단계 내려갈 때 남길 후보 비율(고정 개수로 잡으면 여정이 안 끝난다)
+const MIN_SHRINK = 0.30;  // 한 번에 이보다 더 급히 좁히지 않는다
+const MAX_SHRINK = 0.85;  // 한 번에 최소 이만큼은 좁힌다(항상 줌인 보장)
+const MIN_R = 0.10;       // 더는 좁힐 수 없는 하한
 const MAX_CHIPS = 12;     // 화면에 띄울 최대 단어 수
 const MIN_POOL = 3;       // 후보가 이보다 적으면 여정 종료
 const SEP_X = 0.19, SEP_Y = 0.085; // 칩 겹침 방지 최소 간격(정규화 좌표)
@@ -76,6 +83,24 @@ function poolSize(view, visited) {
   return WORDS.filter(w => inView(w, view) && !visited.has(w.w)).length;
 }
 
+/* 고른 단어를 새 원점으로 두고, 남은 후보가 직전의 POOL_DECAY 배가 되도록 시야를 좁힌다.
+   단어가 빽빽한 쪽(불쾌)은 많이, 성긴 쪽(쾌·저활성 35개)은 적게 좁아져서
+   어느 방향을 골라도 비슷한 단계 수로 세분화된다.
+   가로세로 비율은 그대로 유지해 좌표가 왜곡되지 않게 한다. */
+function fitView(w, prev, visited, prevPool) {
+  const target = Math.max(MIN_POOL, Math.round(prevPool * POOL_DECAY));
+  const baseX = prev.rx * MAX_SHRINK, baseY = prev.ry * MAX_SHRINK;
+  const center = { cx: w.v, cy: w.a };
+  let rx = baseX, ry = baseY;
+  for (let s = 1; s >= MIN_SHRINK / MAX_SHRINK; s -= 0.02) {
+    const tx = baseX * s, ty = baseY * s;
+    if (tx < MIN_R || ty < MIN_R) break;
+    rx = tx; ry = ty;
+    if (poolSize({ ...center, rx, ry }, visited) <= target) break;
+  }
+  return { ...center, rx: Math.max(rx, MIN_R), ry: Math.max(ry, MIN_R) };
+}
+
 /* --- 축 라벨: 깊어질수록 좁은 구간의 이름으로 바뀐다 --- */
 function axisLabels(view, depth) {
   if (depth === 0) return {
@@ -99,12 +124,12 @@ function viewIntro() {
   return `
   <div class="intro">
     <h1>지금 내 마음에<br><em>이름을 붙여 볼까요</em></h1>
-    <p>“기분이 안 좋다”는 말로는 잘 안 잡히는 감정이 있습니다.
-       크게 네 갈래에서 시작해, 고를 때마다 더 좁은 자리로 들어갑니다.</p>
+    <p>“기분이 안 좋다”로는 잘 안 잡히는 감정이 있습니다.
+       고를 때마다 더 좁은 자리로 들어갑니다.</p>
     <div class="steps">
-      <div class="step"><i>1</i><b>네 갈래에서 고르기</b>좋음·안 좋음, 심함·약함으로 나뉜 사분면에서 지금에 가까운 단어를 누릅니다.</div>
-      <div class="step"><i>2</i><b>뜻을 보고 정하기</b>단어를 누르면 뜻이 뜹니다. 읽어 보고 맞다 싶으면 그쪽으로 좁힙니다.</div>
-      <div class="step"><i>3</i><b>점점 가까이</b>고른 단어가 한가운데가 되고 축이 촘촘해집니다. 몰랐던 단어가 나타납니다.</div>
+      <div class="step"><i>1</i><b>네 갈래에서 고르기</b><span>지금에 가까운 단어를 누릅니다.</span></div>
+      <div class="step"><i>2</i><b>뜻을 보고 정하기</b><span>읽어 보고 맞으면 그쪽으로 좁힙니다.</span></div>
+      <div class="step"><i>3</i><b>점점 가까이</b><span>고른 단어가 한가운데가 되고, 몰랐던 단어가 나타납니다.</span></div>
     </div>
     <button class="btn" data-act="start">시작하기</button>
     <p style="margin-top:26px;font-size:.8rem;color:var(--ink-faint)">
@@ -221,6 +246,18 @@ function viewFinal() {
   </div>`;
 }
 
+/* 지도 화면에서는 푸터를 아예 빼서 뜻 카드가 화면 안에 들어오게 한다.
+   결과 화면에는 논문 수치를 그대로 띄우므로 출처 한 줄은 반드시 남긴다. */
+function viewFooterSlim() {
+  return `
+  <footer class="slim">
+    <p>평정값 출처 — 박인조·민경환 (2005), 「한국어 감정단어의 목록 작성과 차원 탐색」,
+       <i>한국심리학회지: 사회 및 성격</i>, 19(1), 109–129. 뜻풀이는 이 사이트에서 붙였습니다.
+       심리 검사나 진단이 아닙니다.</p>
+    <a class="backlink" href="https://euichanlee0608-svg.github.io/">전체 포트폴리오 보기 →</a>
+  </footer>`;
+}
+
 function viewFooter() {
   return `
   <footer>
@@ -286,9 +323,10 @@ function relaxChips() {
 /* --- 동작 --- */
 function dive(w) {
   S.history.push({ view: {...S.view}, path: [...S.path], depth: S.depth });
+  const prevPool = poolSize(S.view, S.visited);
   S.path.push(w);
   S.visited.add(w.w);
-  S.view = { cx: w.v, cy: w.a, rx: S.view.rx * SHRINK, ry: S.view.ry * SHRINK };
+  S.view = fitView(w, S.view, S.visited, prevPool);
   S.depth++;
   S.open = null;
   // 실제로 띄울 칩이 몇 개인지로 종료를 판단한다(후보 총수로 하면 칩 1개짜리 화면이 나온다)
@@ -324,7 +362,10 @@ function render() {
   const body = S.screen === 'intro' ? viewIntro()
              : S.screen === 'final' ? viewFinal()
              : viewMap();
-  app.innerHTML = body + viewFooter();
+  const foot = S.screen === 'intro' ? viewFooter()
+             : S.screen === 'final' ? viewFooterSlim()
+             : '';
+  app.innerHTML = body + foot;
   relaxChips();
   if (S.screen !== 'intro') window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -338,5 +379,5 @@ if (app) {
 }
 
 /* 브라우저 밖(테스트)에서 엔진만 따로 검증하기 위한 노출 */
-export { WORDS, V0, SHRINK, MAX_CHIPS, MIN_POOL, SEP_X, SEP_Y,
-         pos, inView, pickWords, poolSize, axisLabels };
+export { WORDS, V0, POOL_DECAY, MAX_SHRINK, MAX_CHIPS, MIN_POOL, SEP_X, SEP_Y,
+         pos, inView, pickWords, poolSize, fitView, axisLabels };

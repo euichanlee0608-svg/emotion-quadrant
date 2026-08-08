@@ -73,6 +73,21 @@ def label_checks(c, tag):
       return o;})()""" % HIT)
     check(not ov, f"{tag}: 축 라벨끼리 안 겹침 ({ov})")
 
+    # 라벨이 보드 위로 올라타면 잘려 보인다(--padY 와 padding 이 어긋나면 발생)
+    onb = c.js("""(()=>{%s
+      const b=document.querySelector('.board').getBoundingClientRect();
+      return [...document.querySelectorAll('.axl')].filter(e=>hit(e.getBoundingClientRect(),b))
+        .map(e=>e.textContent.trim().slice(0,10));})()""" % HIT)
+    check(not onb, f"{tag}: 축 라벨이 보드와 안 겹침 ({onb})")
+
+    # 라벨 전체가 잘리지 않고 다 보이는지(주라벨 + 보조라벨 두 줄)
+    cut = c.js("""[...document.querySelectorAll('.axl')].filter(e=>{
+      const s=e.querySelector('small'); if(!s) return true;
+      const r=e.getBoundingClientRect(), sr=s.getBoundingClientRect();
+      return r.height < 20 || sr.height < 8 || sr.bottom > r.bottom + 1;
+    }).map(e=>e.textContent.trim().slice(0,10))""")
+    check(not cut, f"{tag}: 축 라벨 두 줄이 온전히 보임 (잘림: {cut})")
+
 
 proc = subprocess.Popen(
     [CHROME, "--headless=new", f"--remote-debugging-port={PORT}", "--remote-allow-origins=*",
@@ -109,6 +124,9 @@ try:
 
         # --- 인트로 ---
         check(c.js("!!document.querySelector('[data-act=start]')"), "인트로에 시작 버튼 있음")
+        # 첫 화면에서 스크롤 없이 '시작하기'가 보여야 한다
+        btn_bottom = c.js("Math.round(document.querySelector('[data-act=start]').getBoundingClientRect().bottom)")
+        check(btn_bottom <= h, f"시작 버튼이 첫 화면 안에 보임 (버튼 하단 {btn_bottom}px ≤ 화면 {h}px)")
         check("434" in (c.js("document.body.innerText") or ""), "인트로에 434개 표기")
         check(c.js("!!document.querySelector('footer .backlink')"), "푸터 포트폴리오 백링크 있음")
         check("박인조" in (c.js("document.body.innerText") or ""), "푸터에 논문 출처 표기")
@@ -142,6 +160,12 @@ try:
         check(c.js("!!document.querySelector('.sheet .def')"), f"「{first}」 탭하니 뜻 카드 뜸")
         check(c.js("!!document.querySelector('[data-act=dive]') && !!document.querySelector('[data-act=stop]')"),
               "뜻 카드에 '좁히기'와 '내 감정이에요' 선택지 있음")
+        # 지도 화면엔 프로젝트 설명 푸터를 두지 않는다(스크롤만 잡아먹음)
+        check(not c.js("!!document.querySelector('footer')"), "지도 화면에 푸터 없음")
+        # 뜻 카드가 스크롤 없이 보여야 UX가 산다
+        sb = c.js("Math.round(document.querySelector('.sheet').getBoundingClientRect().bottom)")
+        pd = c.js("document.documentElement.scrollHeight - document.documentElement.clientHeight")
+        check(sb <= h, f"뜻 카드가 화면 안에 들어옴 (카드 하단 {sb}px ≤ {h}px, 페이지 넘침 {pd}px)")
 
         # --- 좁히기 3회: 축이 세분화되는가 ---
         prev_axes = axes
