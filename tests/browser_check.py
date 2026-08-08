@@ -129,6 +129,11 @@ try:
         check(btn_bottom <= h, f"시작 버튼이 첫 화면 안에 보임 (버튼 하단 {btn_bottom}px ≤ 화면 {h}px)")
         check("434" in (c.js("document.body.innerText") or ""), "인트로에 434개 표기")
         # 자연어 입력 — 실제 분석 호출은 하지 않는다(유료 경로). UI 존재만 확인.
+        check(c.js("!!document.querySelector('.hero')"), "히어로 섹션 있음")
+        check(c.js("!!document.querySelector('.hero .steps .step')"), "히어로에 설명 박스 있음")
+        nl_top = c.js("Math.round(document.querySelector('#nlsec').getBoundingClientRect().top)")
+        check(nl_top >= h - 60, f"자연어 섹션은 첫 화면 아래에 있어야 함 (top {nl_top}px, 화면 {h}px)")
+        check(c.js("!!document.querySelector('[data-act=toNL]')"), "아래로 내려가는 안내 버튼 있음")
         check(c.js("!!document.querySelector('#note')"), "자연어 입력칸 있음")
         check(c.js("!!document.querySelector('[data-act=analyze]')"), "'감정 찾아보기' 버튼 있음")
         fs = c.js("parseFloat(getComputedStyle(document.querySelector('#note')).fontSize)")
@@ -170,10 +175,29 @@ try:
               "대분류 카드에 '이 갈래로' 버튼 있음")
         # 지도 화면엔 프로젝트 설명 푸터를 두지 않는다(스크롤만 잡아먹음)
         check(not c.js("!!document.querySelector('footer')"), "지도 화면에 푸터 없음")
-        # 뜻 카드가 스크롤 없이 보여야 UX가 산다
-        sb = c.js("Math.round(document.querySelector('.sheet').getBoundingClientRect().bottom)")
-        pd = c.js("document.documentElement.scrollHeight - document.documentElement.clientHeight")
-        check(sb <= h, f"뜻 카드가 화면 안에 들어옴 (카드 하단 {sb}px ≤ {h}px, 페이지 넘침 {pd}px)")
+
+        # ★ 핵심 UX — 칩을 누른 직후, 스크롤 없이 액션 버튼이 화면 안에 보여야 한다.
+        #    (예전엔 시트가 문서 흐름에 있어서 스크롤해야 '이 갈래로'가 보였다)
+        c.js("window.scrollTo(0,0)"); time.sleep(0.35)
+        r = c.js("""(()=>{const b=document.querySelector('.sheet [data-act=dive],.sheet [data-act=stop]');
+          if(!b) return null; const q=b.getBoundingClientRect();
+          return {top:Math.round(q.top),bottom:Math.round(q.bottom)};})()""")
+        check(r is not None, "시트에 진행 버튼이 있음")
+        if r:
+            check(0 <= r["top"] and r["bottom"] <= h,
+                  f"스크롤 없이 진행 버튼이 보임 (버튼 {r['top']}~{r['bottom']}px, 화면 {h}px)")
+        # 시트가 보드를 완전히 가리지도 않아야 한다
+        cov = c.js("""(()=>{const s=document.querySelector('.sheet'),b=document.querySelector('.board');
+          if(!s||!b) return 0; const S=s.getBoundingClientRect(),B=b.getBoundingClientRect();
+          const o=Math.max(0,Math.min(S.bottom,B.bottom)-Math.max(S.top,B.top));
+          return Math.round(o/B.height*100);})()""")
+        check(cov <= 40, f"시트가 보드를 40% 넘게 가리지 않음 (실제 {cov}%)")
+        hid = c.js("""(()=>{const s=document.querySelector('.sheet'); if(!s) return [];
+          const S=s.getBoundingClientRect();
+          return [...document.querySelectorAll('.axl')].filter(e=>{const r=e.getBoundingClientRect();
+            return r.left<S.right&&S.left<r.right&&r.top<S.bottom&&S.top<r.bottom;})
+            .map(e=>e.textContent.trim().slice(0,10));})()""")
+        check(not hid, f"시트가 축 라벨을 가리지 않음 (가림: {hid})")
 
         # --- 좁히기 3회: 축이 세분화되는가 ---
         prev_axes = axes
@@ -197,9 +221,6 @@ try:
                       or not c.js("!!document.querySelector('.sheet')"),
                       "단어 카드엔 '이게 내 감정이에요' 버튼")
             label_checks(c, f"{step}단계")
-            # 뜻 카드를 열지 않아도 바로 멈출 수 있어야 한다
-            check(c.js("!!document.querySelector('[data-act=stopHere]')"),
-                  f"{step}단계 지도에 '여기서 멈추기' 있음")
             prev_axes = new_axes
             nchips = c.js("document.querySelectorAll('.chip').length")
             check(nchips >= 3, f"{step}단계 칩 {nchips}개 (>=3)")
@@ -209,7 +230,17 @@ try:
             check(not ov, f"{step}단계 칩이 보드 가로 범위 안 (밖: {ov})")
             if c.js("!!document.querySelector('.chip')"):
                 c.js("document.querySelector('.chip').click()")
-                time.sleep(0.4)
+                time.sleep(0.45)
+                # 모든 액션은 시트 안에 모여 있어야 한다(상단바에 흩어 두면 못 찾는다)
+                check(c.js("!!document.querySelector('.sheet [data-act=dive],.sheet [data-act=stop]')"),
+                      f"{step}단계 시트 안에 진행 버튼 있음")
+                c.js("window.scrollTo(0,0)"); time.sleep(0.3)
+                rr = c.js("""(()=>{const b=document.querySelector('.sheet [data-act=dive],.sheet [data-act=stop]');
+                  if(!b) return null; const q=b.getBoundingClientRect();
+                  return {top:Math.round(q.top),bottom:Math.round(q.bottom)};})()""")
+                if rr:
+                    check(0 <= rr["top"] and rr["bottom"] <= h,
+                          f"{step}단계도 스크롤 없이 버튼이 보임 ({rr['top']}~{rr['bottom']}px)")
 
         # --- 결과 화면 ---
         if not c.js("!!document.querySelector('.final-word')"):
@@ -229,15 +260,13 @@ try:
         check("논문" in txt and "이 사이트" in txt, "논문 값과 사이트 분류를 구분해 표기")
         check(c.js("!!document.querySelector('[data-act=reset]')"), "결과에 다시하기 버튼")
 
-        # '여기서 멈추기'만으로도 결과에 닿는가 (reset 은 인트로로 가므로 다시 시작해야 한다)
+        # 시트의 '여기서 멈추기'만으로도 결과에 닿는가 (reset 은 인트로로 간다)
         c.js("document.querySelector('[data-act=reset]').click()"); time.sleep(0.6)
         c.js("document.querySelector('[data-act=start]').click()"); time.sleep(0.7)
-        c.js("document.querySelector('.chip').click()"); time.sleep(0.4)
-        if c.js("!!document.querySelector('[data-act=dive]')"):
-            c.js("document.querySelector('[data-act=dive]').click()"); time.sleep(0.7)
-        if c.js("!!document.querySelector('[data-act=stopHere]')"):
-            c.js("document.querySelector('[data-act=stopHere]').click()"); time.sleep(0.6)
-            check(c.js("!!document.querySelector('.final-word')"), "'여기서 멈추기'로 결과 화면 도달")
+        c.js("document.querySelector('.chip').click()"); time.sleep(0.5)
+        if c.js("!!document.querySelector('.sheet [data-act=stop]')"):
+            c.js("document.querySelector('.sheet [data-act=stop]').click()"); time.sleep(0.6)
+            check(c.js("!!document.querySelector('.final-word')"), "시트의 '여기서 멈추기'로 결과 도달")
             check(c.js("document.querySelectorAll('.journey span').length") == 1,
                   "멈춘 시점까지의 여정만 결과에 남음")
 

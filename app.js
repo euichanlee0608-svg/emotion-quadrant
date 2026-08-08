@@ -2,7 +2,7 @@
    탐색 로직은 engine.js 에 있다(브라우저 없이 테스트할 수 있게 분리). */
 import { WORDS } from './data.js';
 import { FAMILIES, LEVELS, levelOf, layout, axisLabels, localMatch } from './engine.js';
-import { analyze, backendName } from './analyze.js';
+import { analyze, probeLocal, VIA } from './analyze.js';
 
 const app = typeof document !== 'undefined' ? document.getElementById('app') : null;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -10,7 +10,8 @@ const rankOf = w => WORDS.filter(x => x.p > w.p).length + 1;
 
 let S;
 function reset() {
-  S = { screen: 'intro', path: [], open: null, note: '', busy: false, sug: null, err: '' };
+  S = { screen: 'intro', path: [], open: null,
+        note: '', busy: false, step: '', sug: null, err: '', pick: null, localUp: null };
 }
 
 /* 지금 화면에 놓인 것 하나를 눌렀을 때 뭘 보여줄지 */
@@ -27,38 +28,87 @@ const cardOf = it =>
 const keyOf = it => it.words ? it.name : it.w;
 
 /* ---------------- 인트로 ---------------- */
+const STEP_LINES = [
+  ['probe', '준비'],
+  ['local', '로컬 모델로 읽는 중 — 글이 컴퓨터 밖으로 안 나갑니다'],
+  ['edge',  '모델이 글을 읽는 중'],
+  ['match', '글자 겹침으로 찾는 중 (모델 실패)'],
+];
+
+function viewProgress() {
+  if (!S.busy && !S.sug && !S.err) return '';
+  const lines = STEP_LINES.filter(([k]) => k !== 'local' || S.localUp === true);
+  const order = lines.map(x => x[0]);
+  const at = order.indexOf(S.step);
+  return `<div class="steps-live">${lines.map(([k, label], i) => {
+    let cls = 'sl';
+    if (S.busy) cls += k === S.step ? ' now' : (i < at ? ' done' : ' skip');
+    else cls += i < at ? ' done' : (k === S.step ? (S.err ? ' fail' : ' done') : ' skip');
+    return `<div class="${cls}"><span class="dot"></span>${esc(label)}</div>`;
+  }).join('')}</div>`;
+}
+
 function viewIntro() {
   const sug = S.sug;
+  const hint = S.localUp === true
+    ? '이 컴퓨터의 로컬 모델을 먼저 씁니다 — 글이 밖으로 나가지 않습니다'
+    : '입력한 글은 분석에만 쓰이고 저장하지 않습니다';
+
   return `
   <div class="intro">
-    <h1>지금 내 마음에<br><em>이름을 붙여 볼까요</em></h1>
-    <p>“기분이 안 좋다”로는 잘 안 잡히는 감정이 있습니다.
-       세 번만 고르면 그 자리에 맞는 말에 닿습니다.</p>
-
-    <div class="nl">
-      <label for="note">요즘 기분이나 상황을 그냥 적어 보세요 <span>(건너뛰어도 됩니다)</span></label>
-      <textarea id="note" rows="3" maxlength="400"
-        placeholder="예) 열심히 준비한 게 잘 안 됐는데, 남들은 다 잘 풀리는 것 같아서 자꾸 신경이 쓰인다">${esc(S.note)}</textarea>
-      <div class="nl-row">
-        <button class="btn sm" data-act="analyze" ${S.busy ? 'disabled' : ''}>
-          ${S.busy ? '읽는 중…' : '이 글에서 감정 찾아보기'}</button>
-        <span class="nl-hint">${esc(backendName())}</span>
+    <div class="hero">
+      <h1>지금 내 마음에<br><em>이름을 붙여 볼까요</em></h1>
+      <p>“기분이 안 좋다”로는 잘 안 잡히는 감정이 있습니다.
+         세 번만 고르면 그 자리에 맞는 말에 닿습니다.</p>
+      <div class="cta"><button class="btn" data-act="start">시작하기</button></div>
+      <div class="steps">
+        <div class="step"><i>1</i><b>네 갈래에서 고르기</b><span>지금에 가까운 갈래를 누릅니다.</span></div>
+        <div class="step"><i>2</i><b>결을 좁히기</b><span>같은 갈래라도 결이 다릅니다.</span></div>
+        <div class="step"><i>3</i><b>맞는 말 고르기</b><span>몰랐던 단어에 닿습니다.</span></div>
       </div>
-      ${S.err ? `<p class="nl-err">${esc(S.err)}</p>` : ''}
-      ${sug ? `
-        <div class="sug">
-          ${sug.read ? `<p class="sug-read">${esc(sug.read)}</p>` : ''}
-          <p class="sug-lab">이런 감정에 가까워 보입니다 — 눌러서 거기서부터 보세요</p>
-          <div class="sug-list">
-            ${sug.words.map(w => `<button class="chip flat" data-jump="${esc(w.w)}">
-                <b>${esc(w.w)}</b><small>${esc(w.d)}</small></button>`).join('')}
-          </div>
-        </div>` : ''}
+      <button class="scroll-cue" data-act="toNL">글로 적어서 찾기<i>▾</i></button>
     </div>
 
-    <button class="btn" data-act="start">처음부터 골라 보기</button>
-    <p class="foot-note">한국어 감정단어 <b>434개</b>로 만들었습니다.</p>
+    <div class="nl-sec" id="nlsec">
+      <h2>고르기 어렵다면, 그냥 적어 보세요</h2>
+      <p class="lead">지금 상황이나 기분을 문장으로 적으면, 그 글에서 가까운 감정 단어를 찾아 줍니다.</p>
+      <div class="nl">
+        <label for="note">요즘 기분이나 상황</label>
+        <textarea id="note" rows="3" maxlength="400"
+          placeholder="예) 열심히 준비한 게 잘 안 됐는데, 남들은 다 잘 풀리는 것 같아서 자꾸 신경이 쓰인다">${esc(S.note)}</textarea>
+        <div class="nl-row">
+          <button class="btn sm" data-act="analyze" ${S.busy ? 'disabled' : ''}>
+            ${S.busy ? '읽는 중…' : '이 글에서 감정 찾아보기'}</button>
+          <span class="nl-hint">${esc(hint)}</span>
+        </div>
+        ${viewProgress()}
+        ${S.err ? `<p class="nl-err">${esc(S.err)}</p>` : ''}
+        ${sug ? viewSuggest(sug) : ''}
+      </div>
+    </div>
   </div>`;
+}
+
+function viewSuggest(sug) {
+  const picked = S.pick;
+  return `
+    <div class="sug" id="sug">
+      ${sug.read ? `<p class="sug-read">${esc(sug.read)}</p>` : ''}
+      <p class="sug-lab">이런 감정에 가까워 보입니다 — 눌러서 고르세요</p>
+      <div class="sug-list">
+        ${sug.words.map(w => `<button class="chip flat${picked && picked.w === w.w ? ' on' : ''}" data-sug="${esc(w.w)}">
+            <b>${esc(w.w)}</b><small>${esc(w.d)}</small></button>`).join('')}
+      </div>
+      ${picked ? `
+        <div class="pick">
+          <p><b>${esc(picked.w)}</b> — 여기서 어떻게 할까요?</p>
+          <div class="acts">
+            <button class="btn sm" data-act="pickGo" data-k="${esc(picked.w)}">이 언저리에서 더 찾아보기 →</button>
+            <button class="btn sm ghost" data-act="pickEnd" data-k="${esc(picked.w)}">이 말로 마무리하기</button>
+          </div>
+        </div>` : ''}
+      <p class="sug-via">${esc(VIA[sug.via] || '')}</p>
+    </div>`;
 }
 
 /* ---------------- 지도 ---------------- */
@@ -92,14 +142,16 @@ function viewMap() {
   const c = S.open ? cardOf(S.open) : null;
   const last = lv.kind === 'word';
 
+  // 액션은 전부 이 시트 안에 모은다. 상단바에 흩어 두면 눌러야 할 곳을 못 찾는다.
   const sheet = c ? `
     <div class="sheet">
+      <button class="sheet-close" data-act="close" aria-label="닫기">✕</button>
       <h3>${esc(c.title)}</h3>
       <p class="def">${esc(c.desc)}</p>
       <p class="meta">${esc(c.meta)}</p>
       <div class="acts">
         <button class="btn sm" data-act="${last ? 'stop' : 'dive'}" data-k="${esc(keyOf(S.open))}">${esc(c.go)}</button>
-        <button class="btn sm ghost" data-act="close">다시 고르기</button>
+        ${last ? '' : `<button class="btn sm ghost" data-act="stop" data-k="${esc(keyOf(S.open))}">여기서 멈추기</button>`}
       </div>
     </div>`
     : `<p class="hint">${last ? '단어를 눌러 뜻을 확인해 보세요.' : '눌러서 어떤 갈래인지 확인하고 들어가세요.'}</p>`;
@@ -109,7 +161,6 @@ function viewMap() {
       <span class="depth-pill">${depth + 1}/${LEVELS}단계</span>
       ${trail}
       <span class="spacer"></span>
-      ${depth ? `<button class="btn sm here" data-act="stopHere">여기서 멈추기</button>` : ''}
       ${depth ? `<button class="btn sm ghost" data-act="back">뒤로</button>` : ''}
       <button class="btn sm ghost" data-act="reset">처음부터</button>
     </div>
@@ -267,20 +318,24 @@ async function runAnalyze() {
   const ta = app.querySelector('#note');
   S.note = ta ? ta.value : S.note;
   if (S.note.trim().length < 4) { S.err = '조금만 더 적어 주세요 (네 글자 이상).'; render(); return; }
-  S.busy = true; S.err = ''; S.sug = null; render();
+  S.busy = true; S.err = ''; S.sug = null; S.pick = null; S.step = 'probe';
+  render();
   try {
-    S.sug = await analyze(S.note, { WORDS, FAMILIES, localMatch });
+    S.sug = await analyze(S.note, {
+      WORDS, localMatch,
+      onStep: k => { S.step = k; render(); },
+    });
+    if (S.sug.via === 'match') S.err = '모델을 쓰지 못해 글자 겹침으로만 찾았습니다. 결과가 거칠 수 있습니다.';
   } catch (e) {
     S.err = String((e && e.message) || e);
-    const fb = localMatch(S.note);
-    if (fb.length) S.sug = { read: '', words: fb };
   }
   S.busy = false;
+  S.scrollTarget = S.sug ? '#sug' : '#nlsec';   // 답이 나오면 그쪽으로 화면을 옮겨 준다
   render();
 }
 
 function onClick(e) {
-  const el = e.target.closest('[data-act],[data-k],[data-jump]');
+  const el = e.target.closest('[data-act],[data-k],[data-jump],[data-sug]');
   if (!el) return;
   const act = el.dataset.act;
 
@@ -289,8 +344,25 @@ function onClick(e) {
     if (w) jumpTo(w);
     return;
   }
+  if (el.dataset.sug) {                       // 제안 단어 고르기 → 이어갈지 마칠지 묻는다
+    const w = WORDS.find(x => x.w === el.dataset.sug);
+    S.pick = (S.pick && w && S.pick.w === w.w) ? null : w;
+    render();
+    return;
+  }
+  if (act === 'toNL') { scrollTo('#nlsec'); return; }
+  if (act === 'pickGo' || act === 'pickEnd') {
+    const w = WORDS.find(x => x.w === el.dataset.k);
+    if (!w) return;
+    const fam = FAMILIES[w.F];
+    if (act === 'pickEnd') { jumpTo(w); return; }
+    // 그 단어가 속한 중분류 화면부터 이어간다 — 옆의 미세한 차이들을 직접 보게 된다
+    S.path = [fam, fam.subs[w.S]];
+    S.open = w; S.screen = 'map'; render();
+    return;
+  }
   if (act === 'start')   { S.screen = 'map'; S.path = []; S.open = null; render(); return; }
-  if (act === 'reset')   { const n = S.note; reset(); S.note = n; render(); return; }
+  if (act === 'reset')   { const n = S.note, u = S.localUp; reset(); S.note = n; S.localUp = u; render(); return; }
   if (act === 'analyze') { runAnalyze(); return; }
   if (act === 'close')   { S.open = null; render(); return; }
   if (act === 'back') {
@@ -298,7 +370,6 @@ function onClick(e) {
     else S.path.pop();
     S.open = null; render(); return;
   }
-  if (act === 'stopHere') { S.screen = 'final'; S.open = null; render(); return; }
   if (act === 'dive' || act === 'stop') {
     const it = findItem(el.dataset.k);
     if (it) {
@@ -314,6 +385,11 @@ function onClick(e) {
   }
 }
 
+function scrollTo(sel, block = 'start') {
+  const el = app.querySelector(sel);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block });
+}
+
 function render() {
   const body = S.screen === 'intro' ? viewIntro()
              : S.screen === 'final' ? viewFinal()
@@ -321,8 +397,10 @@ function render() {
   const foot = S.screen === 'intro' ? viewFooter()
              : S.screen === 'final' ? viewFooterSlim() : '';
   app.innerHTML = body + foot;
+  document.body.classList.toggle('sheet-open', S.screen === 'map' && !!S.open);
   if (S.screen === 'map') relaxChips();
   if (S.screen !== 'intro') window.scrollTo({ top: 0, behavior: 'instant' });
+  else if (S.scrollTarget) { const t = S.scrollTarget; S.scrollTarget = null; requestAnimationFrame(() => scrollTo(t, 'center')); }
 }
 
 if (app) {
@@ -332,4 +410,6 @@ if (app) {
   addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(relaxChips, 120); });
   reset();
   render();
+  // 로컬 모델이 있는지 미리 확인해 안내 문구를 맞춘다(실패해도 흐름에 영향 없음)
+  probeLocal().then(up => { S.localUp = up; if (S.screen === 'intro' && !S.busy) render(); });
 }

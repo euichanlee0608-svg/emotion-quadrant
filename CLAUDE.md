@@ -32,14 +32,20 @@ min~max로 다시 스케일하므로 사분면이 비지 않는다. 축은 레�
 `engine_test.mjs`의 **434개 전수 도달**과 **단어 화면 빈 사분면 평균**이 핵심 지표다.
 탐색 로직을 바꾸면 이 두 값으로 판단할 것.
 
-## 1.6 자연어 분석은 3단 폴백이고, 답은 434개 안으로 가둔다
+## 1.6 자연어 분석 — 기본은 Gemini, 답은 434개 안으로 가둔다
 
-`analyze.js`: 로컬 Ollama(로컬에서 열었을 때만) → Supabase Edge Function → `localMatch`.
+`analyze.js`: (로컬에서 열었을 때만 로컬 Ollama) → **Supabase Edge Function(Gemini flash-lite)** → `localMatch`.
+- **공개 사이트에서 로컬 Ollama 를 쓰려고 하지 말 것.** https 페이지 → `http://127.0.0.1` 은
+  크롬이 막는다(실측 `Failed to fetch`). `OLLAMA_ORIGINS` 를 열어도 소용없다.
+  품질도 exaone3.5 < gemini-3.1-flash-lite 였다(README 비교표).
+- `gemini_models` 는 **싼 순서**로 적어 둔다. 서버는 앞부터 시도하므로 평소엔 제일 싼 것만 쓴다.
 - **모델 응답은 반드시 434개 안의 단어로 거른다**(서버·클라이언트 양쪽에서). 목록 밖의 말을
   통과시키면 결과 화면의 논문 평정값과 앞뒤가 안 맞는다.
 - Edge Function 원본 사본은 `supabase/functions/emoquad-analyze/index.ts`. 배포본을 고치면
   이 사본도 같이 갱신한다. 키는 `app_secrets`에만 두고 프론트로 내보내지 않는다.
 - 비로그인 공개 함수라 `emoquad_hit()` 일일 캡을 반드시 유지한다.
+- 분석 결과는 텔레그램(COT봇)으로 알린다. 서버 처리분은 Edge Function 이, 로컬·폴백 처리분은
+  클라이언트가 `{action:"notify"}` 로 중계한다(이 액션은 모델을 안 부르고 캡도 안 쓴다).
 - **브라우저 검증에서 실제 분석 버튼을 누르지 말 것**(유료 경로). UI 존재만 확인하고,
   백엔드는 curl E2E 1건으로 따로 본다.
 
@@ -84,6 +90,12 @@ python3 -m http.server 8777 &
     아래 여백이 더 필요하면 `padding-bottom`만 따로 준다.
   - `.axl`의 `z-index:3`은 필수다. `.board`가 DOM 상 뒤에 와서 이게 없으면 라벨이 가려진다.
 - 가로 스크롤은 어떤 화면에서도 생기면 안 된다(`browser_check.py`가 확인).
+- **뜻 카드(`.sheet`)는 화면 하단 고정이다.** 문서 흐름에 두면 칩을 눌러도 "이 갈래로" 버튼이
+  스크롤해야 보여서 처음 쓰는 사람이 못 찾는다(실제로 그랬다). `browser_check.py` 가
+  ① 스크롤 없이 버튼이 뷰포트 안인지 ② 시트가 보드·축 라벨을 가리지 않는지 확인한다.
+- 시트가 뜰 때 여백은 `.wrap` 에 준다. `.board-outer` 에 주면 그 안에 `bottom` 기준으로 놓인
+  축 라벨이 같이 밀려 내려가 시트에 가려진다(실제로 그랬다).
+- **지도 화면의 액션은 전부 시트 안에** 모은다(상단바에 흩어 두면 눌러야 할 곳을 못 찾는다).
 
 ## 5. 배포
 
