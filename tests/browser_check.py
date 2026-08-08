@@ -124,18 +124,52 @@ try:
 
         # --- 인트로 ---
         check(c.js("!!document.querySelector('[data-act=start]')"), "인트로에 시작 버튼 있음")
-        # 첫 화면에서 스크롤 없이 '시작하기'가 보여야 한다
-        btn_bottom = c.js("Math.round(document.querySelector('[data-act=start]').getBoundingClientRect().bottom)")
-        check(btn_bottom <= h, f"시작 버튼이 첫 화면 안에 보임 (버튼 하단 {btn_bottom}px ≤ 화면 {h}px)")
+        # 첫 화면은 '왜 만들었나' — 문구와 내려가는 버튼이 스크롤 없이 보여야 한다
+        r = c.js("""(()=>{const a=document.querySelector('.why-h'),b=document.querySelector('[data-act=toHero]');
+          if(!a||!b) return null; return {h:Math.round(a.getBoundingClientRect().bottom),
+          c:Math.round(b.getBoundingClientRect().bottom)};})()""")
+        check(r is not None, "첫 화면에 제목과 안내 버튼이 있음")
+        # 배경 단어가 한 곳에 겹쳐 뭉치지 않는지(CSS calc 에 나머지 연산자가 없어 실제로 겹쳤었다)
+        spread = c.js("""(()=>{const es=[...document.querySelectorAll('.drift span')];
+          if(es.length<4) return -1;
+          const xs=new Set(es.map(e=>Math.round(e.getBoundingClientRect().left/20)));
+          const ys=new Set(es.map(e=>Math.round(e.getBoundingClientRect().top/20)));
+          return Math.min(xs.size,ys.size);})()""")
+        check(spread >= 5, f"배경 단어가 흩어져 있음 (구분 위치 {spread}곳)")
+        if r:
+            check(r["h"] <= h and r["c"] <= h,
+                  f"첫 화면이 스크롤 없이 다 보임 (제목 {r['h']}px, 버튼 {r['c']}px ≤ {h}px)")
+        # 한 번 내려가면 '시작하기'가 화면 안에 온다
+        c.js("document.querySelector('[data-act=toHero]').click()"); time.sleep(1.3)
+        sb = c.js("Math.round(document.querySelector('[data-act=start]').getBoundingClientRect().bottom)")
+        check(0 < sb <= h, f"내려가면 시작 버튼이 화면 안 (하단 {sb}px ≤ {h}px)")
         check("434" in (c.js("document.body.innerText") or ""), "인트로에 434개 표기")
         # 자연어 입력 — 실제 분석 호출은 하지 않는다(유료 경로). UI 존재만 확인.
-        check(c.js("!!document.querySelector('.hero')"), "히어로 섹션 있음")
-        check(c.js("!!document.querySelector('.hero .steps .step')"), "히어로에 설명 박스 있음")
-        nl_top = c.js("Math.round(document.querySelector('#nlsec').getBoundingClientRect().top)")
-        check(nl_top >= h - 60, f"자연어 섹션은 첫 화면 아래에 있어야 함 (top {nl_top}px, 화면 {h}px)")
-        check(c.js("!!document.querySelector('[data-act=toNL]')"), "아래로 내려가는 안내 버튼 있음")
+        # 첫 화면은 '왜 만들었나', 그다음이 시작하기, 그다음이 자연어 입력
+        check(c.js("!!document.querySelector('.why .why-h')"), "첫 화면에 '왜 만들었나'가 있음")
+        # 순서는 문서 기준으로 잰다(스크롤 위치에 흔들리지 않게)
+        offs = c.js("""(()=>{const y=e=>e?Math.round(e.getBoundingClientRect().top+scrollY):-1;
+          return {why:y(document.querySelector('.why')), hero:y(document.querySelector('#herosec')),
+                  nl:y(document.querySelector('#nlsec'))};})()""")
+        check(offs["why"] < offs["hero"] < offs["nl"],
+              f"왜 → 시작하기 → 글쓰기 순서 (why {offs['why']}, hero {offs['hero']}, nl {offs['nl']})")
+        check(offs["hero"] >= h - 80, f"시작하기 화면은 첫 화면 아래 (문서 {offs['hero']}px, 화면 {h}px)")
+        check(offs["nl"] - offs["hero"] >= h - 100, f"자연어 섹션은 또 한 화면 아래 (간격 {offs['nl']-offs['hero']}px)")
+        check(c.js("!!document.querySelector('.hero .steps .step')"), "시작 화면에 설명 박스 있음")
+        # 연구 출처를 반드시 명시한다
+        src = c.js("(e=>e?e.textContent:'')(document.querySelector('.src-note'))") or ""
+        check("박인조" in src and "민경환" in src, "설명에 논문 출처 명시")
+        check("서울대" in src, "설명에 연구 소개(소속) 포함")
+        check("이 사이트에서 붙였" in src, "내가 붙인 부분을 구분해 명시")
+        check(c.js("!!document.querySelector('[data-act=toNL]')")
+              and c.js("!!document.querySelector('[data-act=toHero]')"), "아래로 내려가는 안내 버튼들")
         check(c.js("!!document.querySelector('#note')"), "자연어 입력칸 있음")
         check(c.js("!!document.querySelector('[data-act=analyze]')"), "'감정 찾아보기' 버튼 있음")
+        # 사용자에게는 진행중/완료/실패만 — 어떤 모델이 처리했는지, 중간 실패는 보여주지 않는다
+        body_txt = c.js("document.body.innerText") or ""
+        for banned in ["Gemini", "exaone", "로컬 모델로 읽는 중", "글자 겹침"]:
+            check(banned not in body_txt, f"화면에 내부 경로 노출 없음 ({banned})")
+        check(not c.js("!!document.querySelector('.steps-live')"), "단계별 진행 목록은 노출하지 않음")
         fs = c.js("parseFloat(getComputedStyle(document.querySelector('#note')).fontSize)")
         check(w > 500 or fs >= 16, f"모바일 입력 글자 16px 이상 (iOS 자동 확대 방지) — 실제 {fs}px")
         check(c.js("!!document.querySelector('footer .backlink')"), "푸터 포트폴리오 백링크 있음")
@@ -258,11 +292,17 @@ try:
               "결과에 '이 사이트가 붙인 것' 구분 표기")
         txt = c.js("document.body.innerText") or ""
         check("논문" in txt and "이 사이트" in txt, "논문 값과 사이트 분류를 구분해 표기")
-        check(c.js("!!document.querySelector('[data-act=reset]')"), "결과에 다시하기 버튼")
+        check(c.js("!!document.querySelector('[data-act=again]')"), "결과에 '다시 해보기' 버튼")
+        check(c.js("!!document.querySelector('.result .nl.compact #note')"),
+              "결과 화면에도 글로 적는 칸이 있음")
+        # '다시 해보기' 는 인트로가 아니라 첫 사분면으로 가야 한다
+        c.js("document.querySelector('[data-act=again]').click()"); time.sleep(0.7)
+        check(c.js("!!document.querySelector('.board')") and not c.js("!!document.querySelector('.why')"),
+              "'다시 해보기' → 첫 사분면으로 이동")
+        check(c.js("document.querySelectorAll('.trail span').length") == 0, "첫 사분면이라 경로가 비어 있음")
+        check(c.js("!!document.querySelector('[data-act=reset]')"), "지도에 '처음부터' 있음")
 
-        # 시트의 '여기서 멈추기'만으로도 결과에 닿는가 (reset 은 인트로로 간다)
-        c.js("document.querySelector('[data-act=reset]').click()"); time.sleep(0.6)
-        c.js("document.querySelector('[data-act=start]').click()"); time.sleep(0.7)
+        # 시트의 '여기서 멈추기'만으로도 결과에 닿는가 (이미 첫 사분면에 있다)
         c.js("document.querySelector('.chip').click()"); time.sleep(0.5)
         if c.js("!!document.querySelector('.sheet [data-act=stop]')"):
             c.js("document.querySelector('.sheet [data-act=stop]').click()"); time.sleep(0.6)

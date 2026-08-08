@@ -2,7 +2,7 @@
    탐색 로직은 engine.js 에 있다(브라우저 없이 테스트할 수 있게 분리). */
 import { WORDS } from './data.js';
 import { FAMILIES, LEVELS, levelOf, layout, axisLabels, localMatch } from './engine.js';
-import { analyze, probeLocal, VIA } from './analyze.js';
+import { analyze, probeLocal } from './analyze.js';
 
 const app = typeof document !== 'undefined' ? document.getElementById('app') : null;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -28,25 +28,24 @@ const cardOf = it =>
 const keyOf = it => it.words ? it.name : it.w;
 
 /* ---------------- 인트로 ---------------- */
-const STEP_LINES = [
-  ['probe', '준비'],
-  ['local', '로컬 모델로 읽는 중 — 글이 컴퓨터 밖으로 안 나갑니다'],
-  ['edge',  '모델이 글을 읽는 중'],
-  ['match', '글자 겹침으로 찾는 중 (모델 실패)'],
-];
-
-function viewProgress() {
-  if (!S.busy && !S.sug && !S.err) return '';
-  const lines = STEP_LINES.filter(([k]) => k !== 'local' || S.localUp === true);
-  const order = lines.map(x => x[0]);
-  const at = order.indexOf(S.step);
-  return `<div class="steps-live">${lines.map(([k, label], i) => {
-    let cls = 'sl';
-    if (S.busy) cls += k === S.step ? ' now' : (i < at ? ' done' : ' skip');
-    else cls += i < at ? ' done' : (k === S.step ? (S.err ? ' fail' : ' done') : ' skip');
-    return `<div class="${cls}"><span class="dot"></span>${esc(label)}</div>`;
-  }).join('')}</div>`;
+/* 사용자에게는 진행중 / 완료 / 실패만 보여 준다.
+   중간에 어떤 경로가 실패했는지, 무슨 모델이 처리했는지는 알 필요가 없고
+   오히려 "실패했나?" 하고 불안해진다(실제 지적받음). 자세한 건 콘솔·텔레그램으로만 남는다. */
+function viewStatus() {
+  if (S.busy) {
+    const slow = S.step === 'queued';
+    return `<p class="status busy"><span class="spin"></span>${
+      slow ? '조금 오래 걸리고 있습니다 — 다른 방법으로 찾는 중입니다'
+           : '읽는 중입니다…'}</p>`;
+  }
+  if (S.err) return `<p class="status fail">${esc(S.err)}</p>`;
+  if (S.sug) return `<p class="status done">✓ 찾았습니다</p>`;
+  return '';
 }
+
+/* 배경에 흐르는 감정 단어들 — 첫 화면이 무슨 앱인지 한눈에 말해 준다 */
+const DRIFT = ['서운하다','후련하다','겸연쩍다','아련하다','울화통','뿌듯하다','착잡하다','시원섭섭하다',
+               '멋쩍다','허허롭다','설레다','괘씸하다','뭉클하다','심드렁하다','애틋하다','떨떠름하다'];
 
 function viewIntro() {
   const sug = S.sug;
@@ -56,20 +55,44 @@ function viewIntro() {
 
   return `
   <div class="intro">
-    <div class="hero">
-      <h1>지금 내 마음에<br><em>이름을 붙여 볼까요</em></h1>
-      <p>“기분이 안 좋다”로는 잘 안 잡히는 감정이 있습니다.
-         세 번만 고르면 그 자리에 맞는 말에 닿습니다.</p>
+    <section class="why reveal">
+      <div class="drift" aria-hidden="true">${DRIFT.map((w, i) => {
+        // 좌표는 여기서 계산한다 — CSS calc() 에는 나머지 연산자가 없어 % 를 쓰면 규칙이 통째로 무효가 된다
+        const x = (7 + (i * 37) % 82).toFixed(1);
+        const y = (6 + (i * 53) % 86).toFixed(1);
+        const sz = (0.82 + (i % 5) * 0.16).toFixed(2);
+        return `<span style="left:${x}%;top:${y}%;font-size:${sz}rem;animation-delay:${(i * -1.4).toFixed(1)}s">${esc(w)}</span>`;
+      }).join('')}</div>
+      <p class="why-kick">왜 만들었나</p>
+      <h1 class="why-h">아는 단어만큼만<br><em>보인다</em></h1>
+      <p class="why-p">“기분이 안 좋다”로 뭉뚱그리면 마음도 딱 그만큼만 보입니다.
+        억울한 건지, 서운한 건지, 허탈한 건지 — <b>이름이 달라지면 그다음에 할 일도 달라집니다.</b></p>
+      <p class="why-p">쓸 수 있는 단어의 수가 곧 내 마음을 보는 해상도라고 생각했습니다.
+        그래서 한국어 감정단어 <b>434개</b>를 전부 지도 위에 올렸습니다.</p>
+      <button class="scroll-cue" data-act="toHero">시작해 보기<i>▾</i></button>
+    </section>
+
+    <section class="hero reveal" id="herosec">
+      <h2 class="hero-h">지금 내 마음에<br><em>이름을 붙여 볼까요</em></h2>
+      <p class="hero-p">세 번만 고르면 그 자리에 맞는 말에 닿습니다.</p>
       <div class="cta"><button class="btn" data-act="start">시작하기</button></div>
       <div class="steps">
-        <div class="step"><i>1</i><b>네 갈래에서 고르기</b><span>지금에 가까운 갈래를 누릅니다.</span></div>
-        <div class="step"><i>2</i><b>결을 좁히기</b><span>같은 갈래라도 결이 다릅니다.</span></div>
-        <div class="step"><i>3</i><b>맞는 말 고르기</b><span>몰랐던 단어에 닿습니다.</span></div>
+        <div class="step"><i>1</i><b>어느 갈래인가</b><span>16개 큰 갈래에서 가까운 쪽을 고릅니다.</span></div>
+        <div class="step"><i>2</i><b>어떤 결인가</b><span>같은 갈래라도 결이 다릅니다.</span></div>
+        <div class="step"><i>3</i><b>어떤 말인가</b><span>몰랐던 단어에 닿습니다.</span></div>
       </div>
+      <p class="src-note">
+        단어와 좌표는 제가 임의로 만든 게 아닙니다 — <b>박인조·민경환(2005)</b>의 「한국어 감정단어의
+        목록 작성과 차원 탐색」에서 그대로 가져왔습니다. 서울대 심리학과 민경환 교수(정서심리학)
+        연구팀이 국어사전에서 감정 어휘를 모아 감정 연구자 10명의 판단으로 <b>434개</b>를 확정하고,
+        각 단어의 <b>쾌-불쾌·활성화·원형성·친숙성</b>을 대학생들에게 7점 척도로 평정받은 연구입니다.
+        이 앱의 가로·세로 좌표는 전부 그 평정값입니다.
+        <span class="mine">(단어를 묶은 의미 분류와 뜻풀이는 이 사이트에서 붙였습니다.)</span>
+      </p>
       <button class="scroll-cue" data-act="toNL">글로 적어서 찾기<i>▾</i></button>
-    </div>
+    </section>
 
-    <div class="nl-sec" id="nlsec">
+    <section class="nl-sec reveal" id="nlsec">
       <h2>고르기 어렵다면, 그냥 적어 보세요</h2>
       <p class="lead">지금 상황이나 기분을 문장으로 적으면, 그 글에서 가까운 감정 단어를 찾아 줍니다.</p>
       <div class="nl">
@@ -81,11 +104,10 @@ function viewIntro() {
             ${S.busy ? '읽는 중…' : '이 글에서 감정 찾아보기'}</button>
           <span class="nl-hint">${esc(hint)}</span>
         </div>
-        ${viewProgress()}
-        ${S.err ? `<p class="nl-err">${esc(S.err)}</p>` : ''}
+        ${viewStatus()}
         ${sug ? viewSuggest(sug) : ''}
       </div>
-    </div>
+    </section>
   </div>`;
 }
 
@@ -107,7 +129,6 @@ function viewSuggest(sug) {
             <button class="btn sm ghost" data-act="pickEnd" data-k="${esc(picked.w)}">이 말로 마무리하기</button>
           </div>
         </div>` : ''}
-      <p class="sug-via">${esc(VIA[sug.via] || '')}</p>
     </div>`;
 }
 
@@ -233,8 +254,22 @@ function viewFinal() {
     </div>` : ''}
 
     <div class="acts">
-      <button class="btn" data-act="reset">다시 해보기</button>
+      <button class="btn" data-act="again">다시 해보기</button>
       ${S.path.length > 1 ? `<button class="btn ghost" data-act="back">한 단계 뒤로</button>` : ''}
+      <button class="btn ghost" data-act="reset">처음 화면으로</button>
+    </div>
+
+    <div class="nl compact">
+      <label for="note">다른 상황으로 찾아보기</label>
+      <textarea id="note" rows="2" maxlength="400"
+        placeholder="지금 상황이나 기분을 문장으로 적어 보세요">${esc(S.note)}</textarea>
+      <div class="nl-row">
+        <button class="btn sm" data-act="analyze2" ${S.busy ? 'disabled' : ''}>
+          ${S.busy ? '읽는 중…' : '이 글에서 감정 찾아보기'}</button>
+        <span class="nl-hint">${esc(S.localUp === true ? '로컬 모델을 먼저 씁니다' : '입력한 글은 저장하지 않습니다')}</span>
+      </div>
+      ${viewStatus()}
+      ${S.sug ? viewSuggest(S.sug) : ''}
     </div>
   </div>`;
 }
@@ -314,7 +349,7 @@ function jumpTo(word) {
   render();
 }
 
-async function runAnalyze() {
+async function runAnalyze(inResult = false) {
   const ta = app.querySelector('#note');
   S.note = ta ? ta.value : S.note;
   if (S.note.trim().length < 4) { S.err = '조금만 더 적어 주세요 (네 글자 이상).'; render(); return; }
@@ -325,12 +360,11 @@ async function runAnalyze() {
       WORDS, localMatch,
       onStep: k => { S.step = k; render(); },
     });
-    if (S.sug.via === 'match') S.err = '모델을 쓰지 못해 글자 겹침으로만 찾았습니다. 결과가 거칠 수 있습니다.';
   } catch (e) {
     S.err = String((e && e.message) || e);
   }
   S.busy = false;
-  S.scrollTarget = S.sug ? '#sug' : '#nlsec';   // 답이 나오면 그쪽으로 화면을 옮겨 준다
+  S.scrollTarget = S.sug ? '#sug' : (inResult ? '.nl.compact' : '#nlsec');  // 답이 나오면 그쪽으로
   render();
 }
 
@@ -350,7 +384,13 @@ function onClick(e) {
     render();
     return;
   }
-  if (act === 'toNL') { scrollTo('#nlsec'); return; }
+  if (act === 'toNL')   { scrollTo('#nlsec'); return; }
+  if (act === 'toHero') { scrollTo('#herosec'); return; }
+  if (act === 'again')  {           // 결과에서 '다시 해보기' → 첫 사분면으로
+    S.path = []; S.open = null; S.sug = null; S.pick = null; S.err = '';
+    S.screen = 'map'; render(); return;
+  }
+  if (act === 'analyze2') { runAnalyze(true); return; }
   if (act === 'pickGo' || act === 'pickEnd') {
     const w = WORDS.find(x => x.w === el.dataset.k);
     if (!w) return;
@@ -385,6 +425,19 @@ function onClick(e) {
   }
 }
 
+/* 스크롤로 들어오는 섹션을 부드럽게 띄운다(모션 최소화 설정은 CSS 에서 무시됨) */
+let io;
+function reveal() {
+  const els = app.querySelectorAll('.reveal');
+  if (!els.length) return;
+  if (!io && 'IntersectionObserver' in window) {
+    io = new IntersectionObserver(es => es.forEach(e => {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }), { threshold: 0.12 });
+  }
+  els.forEach(el => io ? io.observe(el) : el.classList.add('in'));
+}
+
 function scrollTo(sel, block = 'start') {
   const el = app.querySelector(sel);
   if (el) el.scrollIntoView({ behavior: 'smooth', block });
@@ -399,8 +452,13 @@ function render() {
   app.innerHTML = body + foot;
   document.body.classList.toggle('sheet-open', S.screen === 'map' && !!S.open);
   if (S.screen === 'map') relaxChips();
-  if (S.screen !== 'intro') window.scrollTo({ top: 0, behavior: 'instant' });
-  else if (S.scrollTarget) { const t = S.scrollTarget; S.scrollTarget = null; requestAnimationFrame(() => scrollTo(t, 'center')); }
+  if (S.scrollTarget) {
+    const t = S.scrollTarget; S.scrollTarget = null;
+    requestAnimationFrame(() => scrollTo(t, 'center'));
+  } else if (S.screen !== 'intro') {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+  reveal();
 }
 
 if (app) {

@@ -25,11 +25,8 @@ const PROBE_MS = 1500;    // 로컬 모델이 떠 있는지 확인하는 시간
 const LOCAL_MS = 75000;   // 로컬 생성은 느릴 수 있다
 const EDGE_MS  = 30000;
 
-export const VIA = {
-  local: `로컬 모델(${OLLAMA_MODEL}) — 글이 이 컴퓨터 밖으로 나가지 않았습니다`,
-  edge:  '서버 모델(Gemini flash-lite)로 찾았습니다',
-  match: '글자 겹침으로만 찾은 결과입니다 — 모델을 쓰지 못했습니다',
-};
+/* 사용자에게는 '어떤 모델이 처리했는지'를 알리지 않는다.
+   진행중 / 완료 / 실패만 보이면 되고, 그 외는 콘솔·텔레그램으로만 남긴다. */
 
 /* 로컬에서 연 페이지일 때만 로컬 모델을 시도한다(위 주석 참고) */
 const isLocalPage = () =>
@@ -124,6 +121,28 @@ async function tryEdge(text) {
   return j;
 }
 
+/* 제미나이가 다 떨어지면 서버가 작업을 대기열에 넣고 맥미니 로컬 모델이 처리한다.
+   맥미니는 밖에서 부를 수 없으므로 맥미니가 가지러 가고, 브라우저는 결과를 물어보러 온다. */
+const QUEUE_TRIES = 40, QUEUE_GAP = 3000;   // 최대 약 2분
+async function waitQueued(id, onStep) {
+  for (let i = 0; i < QUEUE_TRIES; i++) {
+    await new Promise(r => setTimeout(r, QUEUE_GAP));
+    onStep('queued');
+    let j = null;
+    try {
+      const r = await fetch(FN, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'job', id }),
+      });
+      j = await r.json();
+    } catch { continue; }
+    if (!j || j.error) continue;
+    if (j.status === 'done' && Array.isArray(j.words) && j.words.length) return j;
+    if (j.status === 'failed') return null;
+  }
+  return null;
+}
+
 /* 동작 확인용 알림 — 실패해도 사용자 흐름을 막지 않는다 */
 export function notify(text, words, via) {
   try {
@@ -157,17 +176,25 @@ export async function analyze(text, { WORDS, localMatch, onStep = () => {} }) {
   // 기본 경로 — Edge Function (서버가 가장 싼 모델부터 순차 시도)
   onStep('edge');
   try {
-    const got = toWords(await tryEdge(text), WORDS);
-    if (got) { return { ...got, via: 'edge' }; }   // 서버가 알림까지 보낸다
-    errs.push('서버가 목록 밖의 답을 냈습니다');
+    const res = await tryEdge(text);
+    if (res && res.queued && res.id) {
+      // 제미나이 소진 → 맥미니가 처리할 때까지 기다린다
+      const done = await waitQueued(res.id, onStep);
+      const got = done && toWords(done, WORDS);
+      if (got) return { ...got, via: 'worker' };
+      errs.push('대기열 처리에 실패했습니다');
+    } else {
+      const got = toWords(res, WORDS);
+      if (got) return { ...got, via: 'edge' };     // 서버가 알림까지 보낸다
+      errs.push('서버가 목록 밖의 답을 냈습니다');
+    }
   } catch (e) { errs.push(String((e && e.message) || e)); }
 
   // 마지막 폴백 — 순수 클라이언트 매칭
-  onStep('match');
   const fb = localMatch(text);
   if (fb.length) {
     notify(text, fb, 'match');
     return { read: '', words: fb, via: 'match', errs };
   }
-  throw new Error(errs[0] || '맞는 단어를 찾지 못했습니다. 조금 더 자세히 적어 보세요.');
+  throw new Error('지금은 분석할 수 없습니다. 잠시 뒤 다시 시도해 주세요.');
 }
