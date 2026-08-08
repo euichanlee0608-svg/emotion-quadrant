@@ -51,10 +51,13 @@ function farEnough(c, picked, view) {
   });
 }
 
-/* 시야 안의 단어를 사분면별로 고르게, 원형성(대표성) 높은 순으로 집는다.
-   WORDS는 원형성 내림차순으로 정렬되어 있으므로 재정렬하지 않는다. */
-function pickWords(view, visited, n = MAX_CHIPS) {
-  const cands = WORDS.filter(w => inView(w, view) && !visited.has(w.w));
+/* 시야 안의 단어를 사분면별로 고르게 집는다. WORDS는 원형성 내림차순이라 재정렬하지 않는다.
+   anchorP(직전에 고른 단어의 원형성)보다 **흔한 말은 아예 뺀다.** 이게 없으면 좁혀 들어가도
+   그 구역에서 가장 흔한 말(즐겁다·신나다)이 계속 다시 올라와 "점점 정확한 말로" 가는 게
+   아니라 제자리걸음이 된다. 남은 것들 안에서는 다시 원형성 높은 순이라 갑자기 낯선 말로
+   튀지는 않는다. 결과적으로 경로를 따라 원형성이 단조 감소한다. */
+function pickWords(view, visited, n = MAX_CHIPS, anchorP = Infinity) {
+  const cands = WORDS.filter(w => inView(w, view) && !visited.has(w.w) && w.p < anchorP);
   const q = [[], [], [], []];
   for (const w of cands) q[(w.v >= view.cx ? 1 : 0) + (w.a >= view.cy ? 2 : 0)].push(w);
 
@@ -79,8 +82,8 @@ function pickWords(view, visited, n = MAX_CHIPS) {
   return picked;
 }
 
-function poolSize(view, visited) {
-  return WORDS.filter(w => inView(w, view) && !visited.has(w.w)).length;
+function poolSize(view, visited, anchorP = Infinity) {
+  return WORDS.filter(w => inView(w, view) && !visited.has(w.w) && w.p < anchorP).length;
 }
 
 /* 고른 단어를 새 원점으로 두고, 남은 후보가 직전의 POOL_DECAY 배가 되도록 시야를 좁힌다.
@@ -96,7 +99,7 @@ function fitView(w, prev, visited, prevPool) {
     const tx = baseX * s, ty = baseY * s;
     if (tx < MIN_R || ty < MIN_R) break;
     rx = tx; ry = ty;
-    if (poolSize({ ...center, rx, ry }, visited) <= target) break;
+    if (poolSize({ ...center, rx, ry }, visited, w.p) <= target) break;
   }
   return { ...center, rx: Math.max(rx, MIN_R), ry: Math.max(ry, MIN_R) };
 }
@@ -138,9 +141,9 @@ function viewIntro() {
 }
 
 function viewMap() {
-  const words = pickWords(S.view, S.visited);
-  const ax = axisLabels(S.view, S.depth);
   const anchor = S.path[S.path.length - 1];
+  const words = pickWords(S.view, S.visited, MAX_CHIPS, anchor ? anchor.p : Infinity);
+  const ax = axisLabels(S.view, S.depth);
 
   const chips = words.map((w, i) => {
     const p = pos(w, S.view);
@@ -160,7 +163,7 @@ function viewMap() {
     : `<em>${esc(anchor.w)}</em> 언저리를 더 들여다봅니다.`;
   const sub = S.depth === 0
     ? '가로축은 기분의 좋고 나쁨, 세로축은 감정의 세기입니다. 단어를 누르면 뜻이 보입니다.'
-    : `축이 한 겹 더 촘촘해졌습니다. 「${esc(anchor.w)}」이(가) 한가운데입니다. 이 언저리에 남은 단어 ${poolSize(S.view, S.visited)}개 가운데 가까운 ${words.length}개를 띄웠습니다.`;
+    : `축이 한 겹 더 촘촘해졌습니다. 「${esc(anchor.w)}」이(가) 한가운데입니다. 「${esc(anchor.w)}」보다 덜 흔한 말 ${poolSize(S.view, S.visited, anchor.p)}개 가운데 가까운 ${words.length}개를 띄웠습니다.`;
 
   const sheet = S.open ? `
     <div class="sheet">
@@ -180,6 +183,7 @@ function viewMap() {
       <span class="depth-pill">${S.depth + 1}단계</span>
       ${trail}
       <span class="spacer"></span>
+      ${S.depth ? `<button class="btn sm here" data-act="stopHere">여기서 멈추기</button>` : ''}
       ${S.history.length ? `<button class="btn sm ghost" data-act="back">뒤로</button>` : ''}
       <button class="btn sm ghost" data-act="reset">처음부터</button>
     </div>
@@ -323,14 +327,15 @@ function relaxChips() {
 /* --- 동작 --- */
 function dive(w) {
   S.history.push({ view: {...S.view}, path: [...S.path], depth: S.depth });
-  const prevPool = poolSize(S.view, S.visited);
+  const prevAnchor = S.path[S.path.length - 1];
+  const prevPool = poolSize(S.view, S.visited, prevAnchor ? prevAnchor.p : Infinity);
   S.path.push(w);
   S.visited.add(w.w);
   S.view = fitView(w, S.view, S.visited, prevPool);
   S.depth++;
   S.open = null;
   // 실제로 띄울 칩이 몇 개인지로 종료를 판단한다(후보 총수로 하면 칩 1개짜리 화면이 나온다)
-  if (pickWords(S.view, S.visited).length < MIN_POOL) S.screen = 'final';
+  if (pickWords(S.view, S.visited, MAX_CHIPS, w.p).length < MIN_POOL) S.screen = 'final';
   render();
 }
 
@@ -353,6 +358,7 @@ function onClick(e) {
   else if (act === 'reset') { reset(); S.screen = 'map'; render(); }
   else if (act === 'back') back();
   else if (act === 'close') { S.open = null; render(); }
+  else if (act === 'stopHere') { S.screen = 'final'; render(); }
   else if (act === 'dive') dive(word);
   else if (act === 'stop') { S.path.push(word); S.visited.add(word.w); S.screen = 'final'; render(); }
   else if (word) { S.open = (S.open && S.open.w === word.w) ? null : word; render(); }

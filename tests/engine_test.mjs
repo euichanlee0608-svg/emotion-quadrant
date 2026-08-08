@@ -39,6 +39,7 @@ function checkLayout(view, words, label) {
 /* 3. 순회 — 얕은 깊이는 전수, 깊은 곳은 무작위 표본으로 종료성 확인 */
 console.log('3. 경로 순회');
 let paths = 0, maxDepth = 0, minChips = 99, endWords = new Set(), depthHist = {};
+let rises = 0, protoPath = [];
 const START = pickWords({...V0}, new Set());
 checkLayout({...V0}, START, 'depth0');
 ok(START.length >= 8, `첫 화면 칩이 최소 8개는 나와야 함 (실제 ${START.length})`);
@@ -58,20 +59,20 @@ function finish(path, depth) {
 
 // 3-a. 깊이 3까지 전수 순회 (배치 규칙을 넓게 훑는다)
 const EXHAUSTIVE = 3;
-function walk(view, visited, depth, path) {
-  const words = pickWords(view, visited);
+function walk(view, visited, depth, path, anchorP = Infinity) {
+  const words = pickWords(view, visited, MAX_CHIPS, anchorP);
   checkLayout(view, words, `depth${depth}`);
   minChips = Math.min(minChips, words.length);
   if (depth >= EXHAUSTIVE) return;
   for (const w of words) {
     const nvis = new Set(visited).add(w.w);
-    const nv = fitView(w, view, nvis, poolSize(view, visited));
+    const nv = fitView(w, view, nvis, poolSize(view, visited, anchorP));
     ok(nv.rx <= view.rx * MAX_SHRINK + 1e-9 && nv.ry <= view.ry * MAX_SHRINK + 1e-9,
        `depth${depth}: ${w.w} 선택 후 시야가 충분히 줄지 않음`);
     ok(Math.abs(nv.rx / nv.ry - view.rx / view.ry) < 1e-6,
        `depth${depth}: ${w.w} 선택 후 가로세로 비율이 틀어짐`);
-    if (pickWords(nv, nvis).length < MIN_POOL) finish([...path, w.w], depth + 1);
-    else walk(nv, nvis, depth + 1, [...path, w.w]);
+    if (pickWords(nv, nvis, MAX_CHIPS, w.p).length < MIN_POOL) finish([...path, w.w], depth + 1);
+    else walk(nv, nvis, depth + 1, [...path, w.w], w.p);
   }
 }
 walk({...V0}, new Set(), 0, []);
@@ -80,18 +81,20 @@ walk({...V0}, new Set(), 0, []);
 let seed = 20050228;
 const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 for (let t = 0; t < 800; t++) {
-  let view = {...V0}, visited = new Set(), path = [], depth = 0, quad = null;
+  let view = {...V0}, visited = new Set(), path = [], depth = 0, quad = null, anchorP = Infinity;
   for (;;) {
     if (depth > 14) { ok(false, `종료 안 됨: ${path.join(' › ')}`); break; }
-    const words = pickWords(view, visited);
+    const words = pickWords(view, visited, MAX_CHIPS, anchorP);
     checkLayout(view, words, `rand-depth${depth}`);
     minChips = Math.min(minChips, words.length);
     if (!words.length) { ok(false, `칩이 0개인 화면: ${path.join(' › ')}`); break; }
     const w = words[Math.floor(rnd() * words.length)];
     if (depth === 0) quad = quadOf(w);
-    const prevPool = poolSize(view, visited);
+    const prevPool = poolSize(view, visited, anchorP);
     visited.add(w.w); view = fitView(w, view, visited, prevPool); path.push(w.w); depth++;
-    if (pickWords(view, visited).length < MIN_POOL) {
+    if (anchorP !== Infinity && w.p > anchorP + 1e-9) rises++;   // 더 흔한 말로 후퇴
+    protoPath.push(w.p); anchorP = w.p;
+    if (pickWords(view, visited, MAX_CHIPS, anchorP).length < MIN_POOL) {
       finish(path, depth); byQuad[quad].push(depth); break;
     }
   }
@@ -106,6 +109,10 @@ for (const [k, arr] of Object.entries(byQuad)) {
   const n = WORDS.filter(w => quadOf(w) === k).length;
   console.log(`     ${k} (단어 ${String(n).padStart(3)}개, 표본 ${String(arr.length).padStart(3)}) → 평균 ${means[k].toFixed(2)}단계`);
 }
+// 심화 방향 보장 — 경로를 따라 원형성이 다시 올라가면(더 흔한 말로 후퇴) 안 된다
+ok(rises === 0, `경로에서 더 흔한 말로 후퇴한 횟수가 0이어야 함 (실제 ${rises}회)`);
+console.log(`   경로 원형성 후퇴 ${rises}회 / 총 ${protoPath.length}스텝`);
+
 const ms = Object.values(means).filter(x => x > 0);
 ok(Math.max(...ms) - Math.min(...ms) < 2.0,
    `사분면별 평균 깊이 편차가 2단계 미만이어야 함 (실제 ${(Math.max(...ms) - Math.min(...ms)).toFixed(2)})`);

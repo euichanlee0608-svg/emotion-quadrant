@@ -184,6 +184,9 @@ try:
             check(c.js("document.querySelectorAll('.trail span').length") == step,
                   f"{step}단계 여정 표시 {step}개")
             label_checks(c, f"{step}단계")
+            # 뜻 카드를 열지 않아도 바로 멈출 수 있어야 한다
+            check(c.js("!!document.querySelector('[data-act=stopHere]')"),
+                  f"{step}단계 지도에 '여기서 멈추기' 있음")
             prev_axes = new_axes
             nchips = c.js("document.querySelectorAll('.chip').length")
             check(nchips >= 3, f"{step}단계 칩 {nchips}개 (>=3)")
@@ -207,6 +210,16 @@ try:
         check(c.js("document.querySelectorAll('.journey span').length") >= 1, "결과에 여정 경로 표시")
         check(c.js("!!document.querySelector('.bar i')"), "결과에 쾌-불쾌/활성화 막대 표시")
         check(c.js("!!document.querySelector('[data-act=reset]')"), "결과에 다시하기 버튼")
+
+        # '여기서 멈추기'만으로도 결과에 닿는가
+        c.js("document.querySelector('[data-act=reset]').click()"); time.sleep(0.6)
+        c.js("document.querySelector('.chip').click()"); time.sleep(0.4)
+        c.js("document.querySelector('[data-act=dive]').click()"); time.sleep(0.7)
+        if c.js("!!document.querySelector('[data-act=stopHere]')"):
+            c.js("document.querySelector('[data-act=stopHere]').click()"); time.sleep(0.6)
+            check(c.js("!!document.querySelector('.final-word')"), "'여기서 멈추기'로 결과 화면 도달")
+            check(c.js("document.querySelectorAll('.journey span').length") == 1,
+                  "멈춘 시점까지의 여정만 결과에 남음")
 
         # --- 가로 스크롤 금지 (전 화면 공통) ---
         hs = c.js("document.documentElement.scrollWidth - document.documentElement.clientWidth")
