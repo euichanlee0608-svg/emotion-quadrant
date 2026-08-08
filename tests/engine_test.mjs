@@ -1,6 +1,6 @@
 /* 엔진 회귀 테스트 — 브라우저 없이 사분면 줌 로직만 검증.
    실행: node tests/engine_test.mjs  (레포 루트에서) */
-import { WORDS, V0, POOL_DECAY, MAX_SHRINK, MAX_CHIPS, MIN_POOL, SEP_X, SEP_Y,
+import { WORDS, V0, POOL_DECAY, MAX_SHRINK, MAX_CHIPS, MIN_POOL, MAX_DEPTH, SEP_X, SEP_Y,
          pos, inView, pickWords, poolSize, fitView, axisLabels } from '../app.js';
 
 let fail = 0;
@@ -39,16 +39,16 @@ function checkLayout(view, words, label) {
 /* 3. 순회 — 얕은 깊이는 전수, 깊은 곳은 무작위 표본으로 종료성 확인 */
 console.log('3. 경로 순회');
 let paths = 0, maxDepth = 0, minChips = 99, endWords = new Set(), depthHist = {};
-let rises = 0, protoPath = [];
+let rises = 0, emptyQuads = [];
 const START = pickWords({...V0}, new Set());
 checkLayout({...V0}, START, 'depth0');
 ok(START.length >= 8, `첫 화면 칩이 최소 8개는 나와야 함 (실제 ${START.length})`);
-ok(new Set(START.map(w => (w.v >= 4 ? 1 : 0) + (w.a >= 4 ? 2 : 0))).size === 4,
+ok(new Set(START.map(w => (w.v >= V0.cx ? 1 : 0) + (w.p >= V0.cy ? 2 : 0))).size === 4,
    '첫 화면은 네 사분면이 모두 채워져야 함');
 
 // 사분면별로 첫 선택을 나눠 담아, 어느 방향을 골라도 세분화 깊이가 비슷한지 본다
 const byQuad = { 좌상: [], 우상: [], 좌하: [], 우하: [] };
-const quadOf = w => (w.v >= V0.cx ? '우' : '좌') + (w.a >= V0.cy ? '상' : '하');
+const quadOf = w => (w.v >= V0.cx ? '우' : '좌') + (w.p >= V0.cy ? '상' : '하');
 
 function finish(path, depth) {
   paths++; maxDepth = Math.max(maxDepth, depth);
@@ -59,20 +59,20 @@ function finish(path, depth) {
 
 // 3-a. 깊이 3까지 전수 순회 (배치 규칙을 넓게 훑는다)
 const EXHAUSTIVE = 3;
-function walk(view, visited, depth, path, anchorP = Infinity) {
-  const words = pickWords(view, visited, MAX_CHIPS, anchorP);
+function walk(view, visited, depth, path) {
+  const words = pickWords(view, visited);
   checkLayout(view, words, `depth${depth}`);
   minChips = Math.min(minChips, words.length);
   if (depth >= EXHAUSTIVE) return;
   for (const w of words) {
     const nvis = new Set(visited).add(w.w);
-    const nv = fitView(w, view, nvis, poolSize(view, visited, anchorP));
+    const nv = fitView(w, view, nvis, poolSize(view, visited));
     ok(nv.rx <= view.rx * MAX_SHRINK + 1e-9 && nv.ry <= view.ry * MAX_SHRINK + 1e-9,
        `depth${depth}: ${w.w} 선택 후 시야가 충분히 줄지 않음`);
     ok(Math.abs(nv.rx / nv.ry - view.rx / view.ry) < 1e-6,
        `depth${depth}: ${w.w} 선택 후 가로세로 비율이 틀어짐`);
-    if (pickWords(nv, nvis, MAX_CHIPS, w.p).length < MIN_POOL) finish([...path, w.w], depth + 1);
-    else walk(nv, nvis, depth + 1, [...path, w.w], w.p);
+    if (depth + 1 >= MAX_DEPTH || pickWords(nv, nvis).length < MIN_POOL) finish([...path, w.w], depth + 1);
+    else walk(nv, nvis, depth + 1, [...path, w.w]);
   }
 }
 walk({...V0}, new Set(), 0, []);
@@ -81,27 +81,31 @@ walk({...V0}, new Set(), 0, []);
 let seed = 20050228;
 const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 for (let t = 0; t < 800; t++) {
-  let view = {...V0}, visited = new Set(), path = [], depth = 0, quad = null, anchorP = Infinity;
+  let view = {...V0}, visited = new Set(), path = [], depth = 0, quad = null, prevP = Infinity;
   for (;;) {
-    if (depth > 14) { ok(false, `종료 안 됨: ${path.join(' › ')}`); break; }
-    const words = pickWords(view, visited, MAX_CHIPS, anchorP);
+    if (depth > MAX_DEPTH) { ok(false, `${MAX_DEPTH}단계 상한을 넘김: ${path.join(' › ')}`); break; }
+    const words = pickWords(view, visited);
     checkLayout(view, words, `rand-depth${depth}`);
     minChips = Math.min(minChips, words.length);
     if (!words.length) { ok(false, `칩이 0개인 화면: ${path.join(' › ')}`); break; }
     const w = words[Math.floor(rnd() * words.length)];
+    const below = w.p < view.cy;                     // 화면 아래쪽 = 더 정확한 말
     if (depth === 0) quad = quadOf(w);
-    const prevPool = poolSize(view, visited, anchorP);
+    emptyQuads.push(4 - new Set(words.map(x => (x.v >= view.cx ? 1 : 0) + (x.p >= view.cy ? 2 : 0))).size);
+    const prevPool = poolSize(view, visited);
     visited.add(w.w); view = fitView(w, view, visited, prevPool); path.push(w.w); depth++;
-    if (anchorP !== Infinity && w.p > anchorP + 1e-9) rises++;   // 더 흔한 말로 후퇴
-    protoPath.push(w.p); anchorP = w.p;
-    if (pickWords(view, visited, MAX_CHIPS, anchorP).length < MIN_POOL) {
+    // 아래쪽 절반(더 정확한 말)을 고르면 반드시 원형성이 내려가야 한다
+    if (below && w.p >= prevP - 1e-9) rises++;
+    prevP = w.p;
+    if (depth >= MAX_DEPTH || pickWords(view, visited).length < MIN_POOL) {
       finish(path, depth); byQuad[quad].push(depth); break;
     }
   }
 }
 
-// 사분면 편중 검사 — 단어 수가 175개(좌상)~35개(우하)로 5배 차이나도
-// 적응적 줌 덕에 평균 도달 깊이가 크게 벌어지면 안 된다
+// 사분면 편중 검사. 편차 기준이 느슨한 건, 이미 원형성이 낮은(정확한) 단어에서 출발하면
+// 그 아래 남은 말이 적어 여정이 짧게 끝나는 게 오히려 자연스럽기 때문이다.
+// 흔한 말에서 출발하면 길고, 정확한 말에서 출발하면 짧다 — 결함이 아니라 의미 있는 동작.
 console.log('   첫 선택 사분면별 평균 도달 단계:');
 const means = {};
 for (const [k, arr] of Object.entries(byQuad)) {
@@ -109,22 +113,29 @@ for (const [k, arr] of Object.entries(byQuad)) {
   const n = WORDS.filter(w => quadOf(w) === k).length;
   console.log(`     ${k} (단어 ${String(n).padStart(3)}개, 표본 ${String(arr.length).padStart(3)}) → 평균 ${means[k].toFixed(2)}단계`);
 }
-// 심화 방향 보장 — 경로를 따라 원형성이 다시 올라가면(더 흔한 말로 후퇴) 안 된다
-ok(rises === 0, `경로에서 더 흔한 말로 후퇴한 횟수가 0이어야 함 (실제 ${rises}회)`);
-console.log(`   경로 원형성 후퇴 ${rises}회 / 총 ${protoPath.length}스텝`);
+// 아래쪽을 고르면 반드시 더 정확한(원형성 낮은) 말이어야 한다 — 세로축의 의미 그 자체
+ok(rises === 0, `아래쪽을 골랐는데 원형성이 안 내려간 횟수가 0이어야 함 (실제 ${rises}회)`);
+
+// 이번 문제의 핵심 — 사분면이 통째로 비면 "그쪽으로 심화할 방향"이 사라진다
+const avgEmpty = emptyQuads.reduce((a, b) => a + b, 0) / emptyQuads.length;
+const allEmpty = emptyQuads.filter(x => x >= 2).length / emptyQuads.length;
+console.log(`   화면당 빈 사분면 평균 ${avgEmpty.toFixed(2)}개 · 2개 이상 빈 화면 ${(allEmpty*100).toFixed(1)}%`);
+ok(avgEmpty < 1.0, `화면당 빈 사분면이 평균 1개 미만이어야 함 (실제 ${avgEmpty.toFixed(2)})`);
+ok(allEmpty < 0.25, `사분면이 2개 이상 비는 화면이 25% 미만이어야 함 (실제 ${(allEmpty*100).toFixed(1)}%)`);
 
 const ms = Object.values(means).filter(x => x > 0);
-ok(Math.max(...ms) - Math.min(...ms) < 2.0,
-   `사분면별 평균 깊이 편차가 2단계 미만이어야 함 (실제 ${(Math.max(...ms) - Math.min(...ms)).toFixed(2)})`);
+ok(Math.max(...ms) - Math.min(...ms) < 2.5,
+   `사분면별 평균 깊이 편차가 2.5단계 미만이어야 함 (실제 ${(Math.max(...ms) - Math.min(...ms)).toFixed(2)})`);
 
 /* 4. 축 라벨 */
 console.log('4. 축 라벨');
 const a0 = axisLabels({...V0}, 0);
 ok(a0.left.main === '안 좋음' && a0.right.main === '좋음', '0단계 가로축은 안 좋음/좋음');
-ok(a0.top.main === '심함' && a0.bottom.main === '약함', '0단계 세로축은 심함/약함');
+ok(a0.top.main === '누구나 쓰는 말' && a0.bottom.main === '잘 안 쓰는 말',
+   '0단계 세로축은 흔한 말/잘 안 쓰는 말');
 for (const d of [1, 2, 3, 4]) {
   const r = V0.rx * 0.7 ** d;
-  const ax = axisLabels({ cx: 3.0, cy: 4.5, rx: r, ry: r }, d);
+  const ax = axisLabels({ cx: 3.0, cy: 4.2, rx: r, ry: r * 0.67 }, d);
   for (const k of ['left','right','top','bottom'])
     ok(ax[k].main && ax[k].sub, `depth${d} ${k} 축 라벨 비어 있음`);
   ok(ax.left.main !== ax.right.main, `depth${d} 좌우 축 라벨이 같으면 안 됨`);

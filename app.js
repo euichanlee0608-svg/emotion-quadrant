@@ -1,28 +1,39 @@
 /* 감정의 사분면 — 재귀 줌 엔진
-   좌표계: v = 쾌-불쾌(1 불쾌 ~ 7 쾌), a = 활성화(1 비활성 ~ 7 활성).
-   화면 배치는 단어의 실제 평정값 그대로다(임의 배치 아님).
-   단어를 고르면 그 단어가 새 원점이 되고, 남은 후보 수를 기준으로 보는 범위가 좁아진다. */
+   가로축 = v(쾌-불쾌, 1 불쾌 ~ 7 쾌), 세로축 = p(원형성, 낮을수록 잘 안 쓰는 정확한 말).
+   화면 배치는 논문 평정값 그대로다(임의 배치 아님).
+   단어를 고르면 그 단어가 새 원점이 되고, 남은 후보 수를 기준으로 보는 범위가 좁아진다.
+
+   세로축이 활성화(a)가 아니라 원형성(p)인 이유 —
+   활성화로 두면 '기쁘다'(v 5.94) 같은 단어를 고른 순간 1사분면 후보가 1개, 3사분면이 99개로
+   쏠린다. 쾌-불쾌가 기쁘다보다 높은 단어가 434개 중 6개뿐이라 데이터 공간의 모서리이기 때문.
+   반면 원형성은 어떤 단어를 골라도 그 아래에 늘 단어가 남아 막히지 않고,
+   '점점 정확한 말로 내려간다'는 이 앱의 목적이 축에 그대로 드러난다.
+   활성화 값은 버리지 않고 뜻 카드와 결과 화면에 그대로 보여 준다. */
 import { WORDS } from './data.js';
 
-// 원점은 7점 척도의 중립값 4.0에 두되, 반경은 실제 데이터(v 1.29~6.24, a 1.90~6.66)를
-// 딱 덮을 만큼만 잡는다 — 전체 1~7로 잡으면 데이터가 없는 가장자리가 빈 채로 남는다.
-const V0 = { cx: 4.0, cy: 4.0, rx: 2.75, ry: 2.7 };
+// 가로는 척도 중립값 4.0이 원점(좋음/안 좋음의 경계), 세로는 원형성 범위(2.35~5.98)의 한가운데.
+// 반경은 실제 데이터를 딱 덮을 만큼만 — 넓게 잡으면 데이터 없는 가장자리가 빈 채로 남는다.
+const V0 = { cx: 4.0, cy: 4.17, rx: 2.75, ry: 1.85 };
 // 시야는 고정 비율이 아니라 "남은 후보 수"에 맞춰 좁힌다.
 // 434개는 불쾌 쪽에 71.9%(312개)가 쏠려 있어(쾌·저활성은 35개뿐) 고정 비율로 좁히면
 // 어느 방향을 골랐느냐에 따라 세분화 깊이가 딴판이 된다. 후보 수를 목표로 삼으면
 // 밀도와 무관하게 매 단계 비슷한 만큼씩 좁혀진다.
-const POOL_DECAY = 0.35;  // 한 단계 내려갈 때 남길 후보 비율(고정 개수로 잡으면 여정이 안 끝난다)
-const MIN_SHRINK = 0.30;  // 한 번에 이보다 더 급히 좁히지 않는다
+const POOL_DECAY = 0.28;  // 한 단계 내려갈 때 남길 후보 비율(고정 개수로 잡으면 여정이 안 끝난다)
+const MIN_SHRINK = 0.18;  // 한 번에 이보다 더 급히 좁히지 않는다
 const MAX_SHRINK = 0.85;  // 한 번에 최소 이만큼은 좁힌다(항상 줌인 보장)
 const MIN_R = 0.10;       // 더는 좁힐 수 없는 하한
 const MAX_CHIPS = 12;     // 화면에 띄울 최대 단어 수
 const MIN_POOL = 3;       // 후보가 이보다 적으면 여정 종료
+// 세로축이 원형성이 된 뒤로는 '덜 흔한 말만' 하드 제약이 없어, 아래로 안 내려가고
+// 옆으로만 돌면 여정이 15단계까지 늘어질 수 있다. 지치기 전에 끊는다.
+const MAX_DEPTH = 7;
 const SEP_X = 0.19, SEP_Y = 0.085; // 칩 겹침 방지 최소 간격(정규화 좌표)
 
 const VB = [[2.2,'참담함'],[2.8,'괴로움'],[3.4,'언짢음'],[3.9,'떨떠름함'],
             [4.3,'덤덤함'],[4.9,'괜찮음'],[5.5,'좋음'],[99,'벅참']];
-const AB = [[2.4,'축 처진'],[3.0,'잔잔한'],[3.6,'차분한'],[4.2,'보통'],
-            [4.8,'들썩이는'],[5.4,'달아오른'],[6.0,'치미는'],[99,'터질 듯한']];
+// 원형성 구간 이름 — 위로 갈수록 흔한 말, 아래로 갈수록 잘 안 쓰는 말
+const PB = [[3.2,'거의 안 쓰는 말'],[3.7,'드문 말'],[4.2,'덜 쓰는 말'],
+            [4.7,'익숙한 말'],[5.3,'흔한 말'],[99,'누구나 쓰는 말']];
 
 const app = typeof document !== 'undefined' ? document.getElementById('app') : null;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -37,11 +48,11 @@ function reset() {
 function pos(w, view) {
   return {
     x: (w.v - (view.cx - view.rx)) / (2 * view.rx),
-    y: 1 - (w.a - (view.cy - view.ry)) / (2 * view.ry),
+    y: 1 - (w.p - (view.cy - view.ry)) / (2 * view.ry),
   };
 }
 const inView = (w, view) =>
-  Math.abs(w.v - view.cx) <= view.rx && Math.abs(w.a - view.cy) <= view.ry;
+  Math.abs(w.v - view.cx) <= view.rx && Math.abs(w.p - view.cy) <= view.ry;
 
 function farEnough(c, picked, view) {
   const p = pos(c, view);
@@ -52,14 +63,13 @@ function farEnough(c, picked, view) {
 }
 
 /* 시야 안의 단어를 사분면별로 고르게 집는다. WORDS는 원형성 내림차순이라 재정렬하지 않는다.
-   anchorP(직전에 고른 단어의 원형성)보다 **흔한 말은 아예 뺀다.** 이게 없으면 좁혀 들어가도
-   그 구역에서 가장 흔한 말(즐겁다·신나다)이 계속 다시 올라와 "점점 정확한 말로" 가는 게
-   아니라 제자리걸음이 된다. 남은 것들 안에서는 다시 원형성 높은 순이라 갑자기 낯선 말로
-   튀지는 않는다. 결과적으로 경로를 따라 원형성이 단조 감소한다. */
-function pickWords(view, visited, n = MAX_CHIPS, anchorP = Infinity) {
-  const cands = WORDS.filter(w => inView(w, view) && !visited.has(w.w) && w.p < anchorP);
+   원형성이 세로축이 된 뒤로는 "덜 흔한 말만 남긴다"는 숨은 제약이 필요 없다 —
+   아래쪽 두 사분면이 곧 더 정확한 말이라 방향이 화면에 그대로 보이고,
+   위로 갈지 아래로 갈지는 사용자가 보고 고른다. */
+function pickWords(view, visited, n = MAX_CHIPS) {
+  const cands = WORDS.filter(w => inView(w, view) && !visited.has(w.w));
   const q = [[], [], [], []];
-  for (const w of cands) q[(w.v >= view.cx ? 1 : 0) + (w.a >= view.cy ? 2 : 0)].push(w);
+  for (const w of cands) q[(w.v >= view.cx ? 1 : 0) + (w.p >= view.cy ? 2 : 0)].push(w);
 
   const picked = [];
   const per = Math.ceil(n / 4);
@@ -82,43 +92,47 @@ function pickWords(view, visited, n = MAX_CHIPS, anchorP = Infinity) {
   return picked;
 }
 
-function poolSize(view, visited, anchorP = Infinity) {
-  return WORDS.filter(w => inView(w, view) && !visited.has(w.w) && w.p < anchorP).length;
+function poolSize(view, visited) {
+  return WORDS.filter(w => inView(w, view) && !visited.has(w.w)).length;
 }
 
-/* 고른 단어를 새 원점으로 두고, 남은 후보가 직전의 POOL_DECAY 배가 되도록 시야를 좁힌다.
+/* 고른 단어를 가로축 한가운데 · **세로축 맨 위**에 두고, 남은 후보가 직전의 POOL_DECAY 배가
+   되도록 시야를 좁힌다. 세로에서 앵커를 위 끝에 두는 이유 — 원형성 1위인 '기쁘다'를 고르면
+   그보다 흔한 말이 없어 위 두 사분면이 통째로 빈다. 앵커를 위 끝에 두면 화면은 늘
+   '앵커보다 정확한 말들'로 채워지고, '여기서 아래로 파고든다'가 그림으로 드러난다.
    단어가 빽빽한 쪽(불쾌)은 많이, 성긴 쪽(쾌·저활성 35개)은 적게 좁아져서
    어느 방향을 골라도 비슷한 단계 수로 세분화된다.
    가로세로 비율은 그대로 유지해 좌표가 왜곡되지 않게 한다. */
 function fitView(w, prev, visited, prevPool) {
   const target = Math.max(MIN_POOL, Math.round(prevPool * POOL_DECAY));
   const baseX = prev.rx * MAX_SHRINK, baseY = prev.ry * MAX_SHRINK;
-  const center = { cx: w.v, cy: w.a };
   let rx = baseX, ry = baseY;
   for (let s = 1; s >= MIN_SHRINK / MAX_SHRINK; s -= 0.02) {
     const tx = baseX * s, ty = baseY * s;
     if (tx < MIN_R || ty < MIN_R) break;
     rx = tx; ry = ty;
-    if (poolSize({ ...center, rx, ry }, visited, w.p) <= target) break;
+    // cy = w.p - ty 이므로 시야는 [w.p - 2ty, w.p] — 앵커가 위 끝
+    if (poolSize({ cx: w.v, cy: w.p - ty, rx: tx, ry: ty }, visited) <= target) break;
   }
-  return { ...center, rx: Math.max(rx, MIN_R), ry: Math.max(ry, MIN_R) };
+  rx = Math.max(rx, MIN_R); ry = Math.max(ry, MIN_R);
+  return { cx: w.v, cy: w.p - ry, rx, ry };
 }
 
 /* --- 축 라벨: 깊어질수록 좁은 구간의 이름으로 바뀐다 --- */
 function axisLabels(view, depth) {
   if (depth === 0) return {
-    left:  { main:'안 좋음', sub:'불쾌한 쪽' },
-    right: { main:'좋음',   sub:'기분 좋은 쪽' },
-    top:   { main:'심함',   sub:'센 감정' },
-    bottom:{ main:'약함',   sub:'여린 감정' },
+    left:  { main:'안 좋음',        sub:'불쾌한 쪽' },
+    right: { main:'좋음',          sub:'기분 좋은 쪽' },
+    top:   { main:'누구나 쓰는 말',  sub:'흔한 표현' },
+    bottom:{ main:'잘 안 쓰는 말',  sub:'더 정확한 표현 ↓' },
   };
   const l = band(VB, view.cx - view.rx), r = band(VB, view.cx + view.rx);
-  const b = band(AB, view.cy - view.ry), t = band(AB, view.cy + view.ry);
+  const b = band(PB, view.cy - view.ry), t = band(PB, view.cy + view.ry);
   return {
     left:  l !== r ? { main:l, sub:'← 덜 좋은 쪽' } : { main:'조금 더 무거운', sub:l },
     right: l !== r ? { main:r, sub:'더 좋은 쪽 →' } : { main:'조금 더 가벼운', sub:r },
-    top:   t !== b ? { main:t, sub:'더 센 쪽' }     : { main:'조금 더 북받치는', sub:t },
-    bottom:t !== b ? { main:b, sub:'더 여린 쪽' }   : { main:'조금 더 가라앉은', sub:b },
+    top:   t !== b ? { main:t, sub:'더 익숙한 쪽' } : { main:'조금 더 익숙한', sub:t },
+    bottom:t !== b ? { main:b, sub:'더 정확한 쪽 ↓' } : { main:'조금 더 낯선', sub:b },
   };
 }
 
@@ -142,7 +156,7 @@ function viewIntro() {
 
 function viewMap() {
   const anchor = S.path[S.path.length - 1];
-  const words = pickWords(S.view, S.visited, MAX_CHIPS, anchor ? anchor.p : Infinity);
+  const words = pickWords(S.view, S.visited);
   const ax = axisLabels(S.view, S.depth);
 
   const chips = words.map((w, i) => {
@@ -162,8 +176,8 @@ function viewMap() {
     ? `지금 마음에 가장 <em>가까운 쪽</em>은 어디인가요?`
     : `<em>${esc(anchor.w)}</em> 언저리를 더 들여다봅니다.`;
   const sub = S.depth === 0
-    ? '가로축은 기분의 좋고 나쁨, 세로축은 감정의 세기입니다. 단어를 누르면 뜻이 보입니다.'
-    : `축이 한 겹 더 촘촘해졌습니다. 「${esc(anchor.w)}」이(가) 한가운데입니다. 「${esc(anchor.w)}」보다 덜 흔한 말 ${poolSize(S.view, S.visited, anchor.p)}개 가운데 가까운 ${words.length}개를 띄웠습니다.`;
+    ? '가로축은 기분의 좋고 나쁨, 세로축은 그 말을 얼마나 흔히 쓰는지입니다. <b>아래로 갈수록 잘 안 쓰는, 더 정확한 말</b>이 나옵니다.'
+    : `축이 한 겹 더 촘촘해졌습니다. 「${esc(anchor.w)}」이(가) 한가운데이고, <b>아래쪽이 더 정확한 말</b>입니다. 이 언저리에 남은 ${poolSize(S.view, S.visited)}개 가운데 가까운 ${words.length}개를 띄웠습니다.`;
 
   const sheet = S.open ? `
     <div class="sheet">
@@ -198,8 +212,8 @@ function viewMap() {
         <div class="quad tl"></div><div class="quad tr"></div>
         <div class="quad bl"></div><div class="quad br"></div>
         <div class="axis h"></div><div class="axis v"></div>
-        <div class="origin"></div>
-        ${anchor ? `<div class="origin-label">${esc(anchor.w)}</div>` : ''}
+        <div class="origin"${anchor ? ' style="top:8%"' : ''}></div>
+        ${anchor ? `<div class="origin-label" style="top:8%">${esc(anchor.w)}</div>` : ''}
         ${chips}
       </div>
     </div>
@@ -327,15 +341,14 @@ function relaxChips() {
 /* --- 동작 --- */
 function dive(w) {
   S.history.push({ view: {...S.view}, path: [...S.path], depth: S.depth });
-  const prevAnchor = S.path[S.path.length - 1];
-  const prevPool = poolSize(S.view, S.visited, prevAnchor ? prevAnchor.p : Infinity);
+  const prevPool = poolSize(S.view, S.visited);
   S.path.push(w);
   S.visited.add(w.w);
   S.view = fitView(w, S.view, S.visited, prevPool);
   S.depth++;
   S.open = null;
   // 실제로 띄울 칩이 몇 개인지로 종료를 판단한다(후보 총수로 하면 칩 1개짜리 화면이 나온다)
-  if (pickWords(S.view, S.visited, MAX_CHIPS, w.p).length < MIN_POOL) S.screen = 'final';
+  if (S.depth >= MAX_DEPTH || pickWords(S.view, S.visited).length < MIN_POOL) S.screen = 'final';
   render();
 }
 
@@ -385,5 +398,5 @@ if (app) {
 }
 
 /* 브라우저 밖(테스트)에서 엔진만 따로 검증하기 위한 노출 */
-export { WORDS, V0, POOL_DECAY, MAX_SHRINK, MAX_CHIPS, MIN_POOL, SEP_X, SEP_Y,
+export { WORDS, V0, POOL_DECAY, MAX_SHRINK, MAX_CHIPS, MIN_POOL, MAX_DEPTH, SEP_X, SEP_Y,
          pos, inView, pickWords, poolSize, fitView, axisLabels };

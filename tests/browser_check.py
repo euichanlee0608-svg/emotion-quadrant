@@ -137,7 +137,7 @@ try:
         chips = c.js("document.querySelectorAll('.chip').length")
         check(chips >= 8, f"0단계 칩 {chips}개 (>=8)")
         axes = c.js("[...document.querySelectorAll('.axl')].map(e=>e.textContent)")
-        check(any("안 좋음" in a for a in axes) and any("심함" in a for a in axes),
+        check(any("안 좋음" in a for a in axes) and any("잘 안 쓰는 말" in a for a in axes),
               f"0단계 축 라벨이 모호한 틀: {axes}")
         label_checks(c, "0단계")
 
