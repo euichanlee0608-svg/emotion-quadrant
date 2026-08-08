@@ -67,10 +67,13 @@ function walk(view, visited, depth, path) {
   for (const w of words) {
     const nvis = new Set(visited).add(w.w);
     const nv = fitView(w, view, nvis, poolSize(view, visited));
-    ok(nv.rx <= view.rx * MAX_SHRINK + 1e-9 && nv.ry <= view.ry * MAX_SHRINK + 1e-9,
-       `depth${depth}: ${w.w} 선택 후 시야가 충분히 줄지 않음`);
-    ok(Math.abs(nv.rx / nv.ry - view.rx / view.ry) < 1e-6,
-       `depth${depth}: ${w.w} 선택 후 가로세로 비율이 틀어짐`);
+    // 가로축은 단계마다 바뀌므로(쾌-불쾌 ↔ 활성화) 가로 반경은 비교 대상이 아니다.
+    // 대신 세로(원형성)는 반드시 좁아지고, 앵커는 세로축 맨 위에 있어야 한다.
+    ok(nv.ry <= view.ry * MAX_SHRINK + 1e-9,
+       `depth${depth}: ${w.w} 선택 후 세로 시야가 줄지 않음`);
+    ok(nv.cy + nv.ry >= w.p - 1e-9 && w.p > nv.cy,
+       `depth${depth}: ${w.w} 가 세로축 위쪽 절반에 있지 않음`);
+    ok(nv.xk === 'v' || nv.xk === 'a', `depth${depth}: 가로축이 v/a 가 아님 (${nv.xk})`);
     if (depth + 1 >= MAX_DEPTH || pickWords(nv, nvis).length < MIN_POOL) finish([...path, w.w], depth + 1);
     else walk(nv, nvis, depth + 1, [...path, w.w]);
   }
