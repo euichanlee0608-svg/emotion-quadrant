@@ -135,7 +135,24 @@ try:
           const xs=new Set(es.map(e=>Math.round(e.getBoundingClientRect().left/20)));
           const ys=new Set(es.map(e=>Math.round(e.getBoundingClientRect().top/20)));
           return Math.min(xs.size,ys.size);})()""")
+        shown = c.js("[...document.querySelectorAll('.drift span')].filter(e=>getComputedStyle(e).visibility!=='hidden').length")
         check(spread >= 5, f"배경 단어가 흩어져 있음 (구분 위치 {spread}곳)")
+        check(shown >= 6, f"배경 단어가 충분히 보임 ({shown}개)")
+        # 배경 단어끼리도 겹치면 지저분하다
+        selfov = c.js("""(()=>{const hit=(a,b)=>a.left<b.right-2&&b.left<a.right-2&&a.top<b.bottom-2&&b.top<a.bottom-2;
+          const es=[...document.querySelectorAll('.drift span')]
+            .filter(e=>getComputedStyle(e).visibility!=='hidden').map(e=>[e.textContent,e.getBoundingClientRect()]);
+          const o=[];for(let i=0;i<es.length;i++)for(let j=i+1;j<es.length;j++)if(hit(es[i][1],es[j][1]))o.push(es[i][0]+'/'+es[j][0]);
+          return o;})()""")
+        check(not selfov, f"배경 단어끼리 안 겹침 ({selfov})")
+        # 본문 글자 위로 겹치지 않아야 읽힌다
+        over = c.js("""(()=>{const hit=(a,b)=>a.left<b.right-2&&b.left<a.right-2&&a.top<b.bottom-2&&b.top<a.bottom-2;
+          const T=[...document.querySelectorAll('.why-h,.why-quote,.why-p,.why-kick')].map(e=>e.getBoundingClientRect());
+          return [...document.querySelectorAll('.drift span')]
+            .filter(e=>getComputedStyle(e).visibility!=='hidden')
+            .filter(e=>{const r=e.getBoundingClientRect();return T.some(t=>hit(r,t));})
+            .map(e=>e.textContent);})()""")
+        check(not over, f"배경 단어가 본문을 가리지 않음 (겹침: {over})")
         if r:
             check(r["h"] <= h and r["c"] <= h,
                   f"첫 화면이 스크롤 없이 다 보임 (제목 {r['h']}px, 버튼 {r['c']}px ≤ {h}px)")
@@ -156,11 +173,15 @@ try:
         check(offs["hero"] >= h - 80, f"시작하기 화면은 첫 화면 아래 (문서 {offs['hero']}px, 화면 {h}px)")
         check(offs["nl"] - offs["hero"] >= h - 100, f"자연어 섹션은 또 한 화면 아래 (간격 {offs['nl']-offs['hero']}px)")
         check(c.js("!!document.querySelector('.hero .steps .step')"), "시작 화면에 설명 박스 있음")
-        # 연구 출처를 반드시 명시한다
-        src = c.js("(e=>e?e.textContent:'')(document.querySelector('.src-note'))") or ""
-        check("박인조" in src and "민경환" in src, "설명에 논문 출처 명시")
-        check("서울대" in src, "설명에 연구 소개(소속) 포함")
-        check("이 사이트에서 붙였" in src, "내가 붙인 부분을 구분해 명시")
+        # 출처는 히어로가 아니라 맨 아래 푸터 한 곳에 모은다(랜딩이 번잡해지지 않게)
+        check(not c.js("!!document.querySelector('.src-note')"), "히어로에 출처 블록이 없음")
+        cite = c.js("(e=>e?e.textContent:'')(document.querySelector('footer .cite'))") or ""
+        check("박인조" in cite and "민경환" in cite, "푸터에 논문 출처 명시")
+        check("서울대" in cite, "푸터에 연구 소개(소속) 포함")
+        check("이 사이트에서 붙인" in cite, "내가 붙인 부분을 구분해 명시")
+        # 첫 화면 인용
+        q = c.js("(e=>e?e.textContent:'')(document.querySelector('.why-quote'))") or ""
+        check("언어의 한계" in q and "비트겐슈타인" in q, "첫 화면에 인용과 출처")
         check(c.js("!!document.querySelector('[data-act=toNL]')")
               and c.js("!!document.querySelector('[data-act=toHero]')"), "아래로 내려가는 안내 버튼들")
         check(c.js("!!document.querySelector('#note')"), "자연어 입력칸 있음")

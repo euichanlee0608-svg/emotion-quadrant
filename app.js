@@ -57,18 +57,24 @@ function viewIntro() {
   <div class="intro">
     <section class="why reveal">
       <div class="drift" aria-hidden="true">${DRIFT.map((w, i) => {
-        // 좌표는 여기서 계산한다 — CSS calc() 에는 나머지 연산자가 없어 % 를 쓰면 규칙이 통째로 무효가 된다
-        const x = (7 + (i * 37) % 82).toFixed(1);
-        const y = (6 + (i * 53) % 86).toFixed(1);
+        // 좌표는 여기서 계산한다 — CSS calc() 에는 나머지 연산자가 없어 % 를 쓰면 규칙이 통째로 무효가 된다.
+        // 가운데는 본문이 차지하므로 좌·우 바깥 띠에만 번갈아 놓는다(글자 위에 겹치지 않게).
+        const x = (i % 2 ? 62 + (i * 13) % 30 : 2 + (i * 11) % 22).toFixed(1);
+        const y = (5 + (i * 53) % 88).toFixed(1);
         const sz = (0.82 + (i % 5) * 0.16).toFixed(2);
         return `<span style="left:${x}%;top:${y}%;font-size:${sz}rem;animation-delay:${(i * -1.4).toFixed(1)}s">${esc(w)}</span>`;
       }).join('')}</div>
-      <p class="why-kick">왜 만들었나</p>
+      <p class="why-kick">이 사이트에 대하여</p>
       <h1 class="why-h">아는 단어만큼만<br><em>보인다</em></h1>
-      <p class="why-p">“기분이 안 좋다”로 뭉뚱그리면 마음도 딱 그만큼만 보입니다.
-        억울한 건지, 서운한 건지, 허탈한 건지 — <b>이름이 달라지면 그다음에 할 일도 달라집니다.</b></p>
-      <p class="why-p">쓸 수 있는 단어의 수가 곧 내 마음을 보는 해상도라고 생각했습니다.
-        그래서 한국어 감정단어 <b>434개</b>를 전부 지도 위에 올렸습니다.</p>
+      <blockquote class="why-quote">
+        “언어의 한계가 내 세계의 한계다.”
+        <cite>루트비히 비트겐슈타인, 『논리철학논고』</cite>
+      </blockquote>
+      <p class="why-p">감정도 다르지 않습니다. “기분이 안 좋다”로 뭉뚱그리면 마음도 딱 그만큼만 보입니다.
+        억울한 것과 서운한 것과 허탈한 것은 서로 다른 상태이고,
+        <b>이름이 달라지면 그다음에 할 일도 달라집니다.</b></p>
+      <p class="why-p">한국어 감정단어 <b>434개</b>를 기분과 세기의 지도 위에 펼쳐 놓았습니다.
+        세 번만 고르면 지금 상태에 더 맞는 말에 닿습니다.</p>
       <button class="scroll-cue" data-act="toHero">시작해 보기<i>▾</i></button>
     </section>
 
@@ -81,14 +87,6 @@ function viewIntro() {
         <div class="step"><i>2</i><b>어떤 결인가</b><span>같은 갈래라도 결이 다릅니다.</span></div>
         <div class="step"><i>3</i><b>어떤 말인가</b><span>몰랐던 단어에 닿습니다.</span></div>
       </div>
-      <p class="src-note">
-        단어와 좌표는 제가 임의로 만든 게 아닙니다 — <b>박인조·민경환(2005)</b>의 「한국어 감정단어의
-        목록 작성과 차원 탐색」에서 그대로 가져왔습니다. 서울대 심리학과 민경환 교수(정서심리학)
-        연구팀이 국어사전에서 감정 어휘를 모아 감정 연구자 10명의 판단으로 <b>434개</b>를 확정하고,
-        각 단어의 <b>쾌-불쾌·활성화·원형성·친숙성</b>을 대학생들에게 7점 척도로 평정받은 연구입니다.
-        이 앱의 가로·세로 좌표는 전부 그 평정값입니다.
-        <span class="mine">(단어를 묶은 의미 분류와 뜻풀이는 이 사이트에서 붙였습니다.)</span>
-      </p>
       <button class="scroll-cue" data-act="toNL">글로 적어서 찾기<i>▾</i></button>
     </section>
 
@@ -291,7 +289,10 @@ function viewFooter() {
       단어와 평정값 출처 — 박인조·민경환 (2005). 「한국어 감정단어의 목록 작성과 차원 탐색」.
       <i>한국심리학회지: 사회 및 성격</i>, 19(1), 109–129. 부록 1의 감정단어 434개와
       쾌-불쾌·활성화·원형성·친숙성 평정값을 그대로 썼습니다.
-      <b>뜻풀이와 의미 분류(대분류 16 · 중분류 74)는 이 사이트에서 붙인 것으로 논문 내용이 아닙니다.</b>
+      서울대학교 심리학과 민경환 교수(정서심리학) 연구팀이 국어사전에서 감정 어휘를 모아
+      감정 연구자 10명의 판단으로 434개를 확정하고, 각 단어의 쾌-불쾌·활성화·원형성·친숙성을
+      대학생들에게 7점 척도로 평정받은 연구입니다. 이 사이트의 가로·세로 좌표는 전부 그 평정값입니다.
+      <b>뜻풀이와 의미 분류(대분류 16 · 중분류 73)는 이 사이트에서 붙인 것으로 논문 내용이 아닙니다.</b>
       이 앱은 심리 검사나 진단이 아니라, 감정에 이름을 붙여 보는 어휘 도구입니다.
     </p>
     <p class="en">A Korean-only vocabulary tool: it walks a semantic tree over the 434 Korean emotion words
@@ -425,6 +426,50 @@ function onClick(e) {
   }
 }
 
+/* 배경 단어를 본문 밖으로 밀어낸다.
+   화면 폭에 따라 본문이 차지하는 자리가 달라져서 고정 비율로는 못 피한다 —
+   그려진 뒤 실제 글자 상자를 재서, 겹치면 위/아래 남는 띠로 옮기고 그래도 없으면 숨긴다. */
+function placeDrift() {
+  const box = app.querySelector('.drift');
+  if (!box) return;
+  const bb = box.getBoundingClientRect();
+  const texts = [...app.querySelectorAll('.why-kick,.why-h,.why-quote,.why-p,.scroll-cue')]
+    .map(e => e.getBoundingClientRect());
+  if (!texts.length || !bb.height) return;
+
+  const top = Math.min(...texts.map(r => r.top)) - bb.top - 10;   // 본문 위 여유
+  const bot = Math.max(...texts.map(r => r.bottom)) - bb.top + 10; // 본문 아래 여유
+  const bands = [];
+  if (top > 34) bands.push({ y: 4, h: top - 4 });
+  if (bb.height - bot > 34) bands.push({ y: bot, h: bb.height - bot - 4 });
+
+  const els = [...box.children];
+  if (!bands.length) { els.forEach(e => { e.style.visibility = 'hidden'; }); return; }
+
+  // 자리(줄 × 좌/우)를 먼저 다 만들어 두고 하나씩 채운다.
+  // 자리보다 단어가 많으면 남는 건 접는다 — 한 자리에 둘을 넣으면 겹친다.
+  const spots = [];
+  bands.forEach(b => {
+    const rows = Math.max(1, Math.min(5, Math.floor(b.h / 34)));
+    const gap = b.h / rows;
+    for (let r = 0; r < rows; r++) {
+      const y = b.y + gap * r + gap * 0.12;
+      spots.push({ y, side: 0 }, { y, side: 1 });
+    }
+  });
+
+  // 띠 안에는 본문이 없으니 가로로도 흩는다(좌·우 반쪽으로 나눠 서로 안 겹치게)
+  els.forEach((el, i) => {
+    if (i >= spots.length) { el.style.visibility = 'hidden'; return; }
+    const sp = spots[i], w = el.offsetWidth, half = bb.width / 2;
+    const lo = sp.side ? half + 6 : 6;
+    const hi = Math.max(lo, (sp.side ? bb.width - 6 : half - 6) - w);
+    el.style.visibility = '';
+    el.style.left = (lo + ((i * 29) % 100) / 100 * (hi - lo)) + 'px';
+    el.style.top = sp.y + 'px';
+  });
+}
+
 /* 스크롤로 들어오는 섹션을 부드럽게 띄운다(모션 최소화 설정은 CSS 에서 무시됨) */
 let io;
 function reveal() {
@@ -459,13 +504,17 @@ function render() {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
   reveal();
+  if (S.screen === 'intro') requestAnimationFrame(placeDrift);
 }
 
 if (app) {
   app.addEventListener('click', onClick);
   app.addEventListener('input', e => { if (e.target.id === 'note') S.note = e.target.value; });
   let rt;
-  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(relaxChips, 120); });
+  addEventListener('resize', () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => { relaxChips(); if (S.screen === 'intro') placeDrift(); }, 120);
+  });
   reset();
   render();
   // 로컬 모델이 있는지 미리 확인해 안내 문구를 맞춘다(실패해도 흐름에 영향 없음)

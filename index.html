@@ -52,6 +52,9 @@ body::after{width:42vw;height:42vw;background:#dff0ff;bottom:-16vw;right:-12vw;a
 .why-kick{font-size:.74rem;font-weight:700;letter-spacing:.14em;color:#c76a97;margin-bottom:16px}
 .why-h{font-size:clamp(2.1rem,7vw,3.1rem);font-weight:800;letter-spacing:-.04em;line-height:1.24;margin-bottom:24px}
 .why-h em{font-style:normal;background:linear-gradient(transparent 56%,#ffd9ea 56%);padding:0 6px}
+.why-quote{max-width:430px;margin:0 auto 22px;font-size:1.02rem;line-height:1.75;color:var(--ink);
+  font-weight:600;padding:14px 20px;border-left:2.5px solid #f0b8d2;text-align:left}
+.why-quote cite{display:block;margin-top:7px;font-style:normal;font-size:.76rem;font-weight:500;color:var(--ink-faint)}
 .why-p{font-size:1rem;line-height:1.95;color:var(--ink-soft);max-width:430px;margin:0 auto 14px}
 .why-p b{color:var(--ink);font-weight:700}
 /* 배경에 흐르는 감정 단어 — 무슨 앱인지 한눈에 */
@@ -64,11 +67,7 @@ body::after{width:42vw;height:42vw;background:#dff0ff;bottom:-16vw;right:-12vw;a
 .hero-h{font-size:clamp(1.6rem,5vw,2.1rem);font-weight:800;letter-spacing:-.03em;line-height:1.32;margin-bottom:12px}
 .hero-h em{font-style:normal;background:linear-gradient(transparent 58%,#e5dcff 58%);padding:0 4px}
 .hero-p{font-size:.98rem;line-height:1.8;color:var(--ink-soft);margin-bottom:4px}
-/* 연구 출처 — 작고 연하게, 그러나 반드시 보이게 */
-.src-note{max-width:520px;margin:26px auto 0;font-size:.76rem;line-height:1.8;color:var(--ink-faint);
-  background:rgba(255,253,252,.7);border-radius:16px;padding:14px 17px;text-align:left}
-.src-note b{color:var(--ink-soft);font-weight:700}
-.src-note .mine{display:block;margin-top:6px;opacity:.85}
+
 /* 히어로 — '시작하기'가 첫 화면에 바로 보이고, 그 아래 설명 박스 */
 .hero{min-height:calc(100vh - 64px);min-height:calc(100dvh - 64px);
   display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:8px 0 0;
@@ -299,7 +298,7 @@ footer.slim p{max-width:520px;margin:0 auto 12px;font-size:.72rem}
   .step{width:100%;max-width:280px}
   .hero,.why{min-height:calc(100dvh - 40px)}
   .why-p{font-size:.94rem;line-height:1.85}
-  .src-note{font-size:.72rem;padding:12px 14px;margin-top:20px}
+  .why-quote{font-size:.94rem;padding:12px 16px;margin-bottom:18px}
   /* 좁은 화면엔 좌우 여백을 둘 수 없어, 좌·하·우 라벨을 보드 아래 한 줄로 내린다 */
   .board-outer{--padX:10px;--padY:52px;padding-bottom:70px}
   .board{aspect-ratio:1/.9;border-radius:26px}
@@ -366,7 +365,7 @@ footer.slim p{max-width:520px;margin:0 auto 12px;font-size:.72rem}
 <body>
 <div class="wrap"><div id="app"></div></div>
 
-<script type="module" src="./app.js?v=4"></script>
+<script type="module" src="./app.js?v=5"></script>
 <script>
 /* 방문 알림 비콘 — GAS→텔레그램 릴레이 (메모리 reference-website-visit-beacon-pattern).
    ref에 'emomap|' 접두사로 사이트 구분. ?owner=1 접속 시 이 브라우저는 이후 알림 제외.
