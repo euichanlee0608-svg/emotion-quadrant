@@ -371,7 +371,7 @@ footer.slim p{max-width:520px;margin:0 auto 12px;font-size:.72rem}
    ref에 'emomap|' 접두사로 사이트 구분. ?owner=1 접속 시 이 브라우저는 이후 알림 제외.
    file:// (로컬 헤드리스 검증)과 localhost는 전송 스킵. */
 (function(){
-  var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxWKySPAxWsYnoZ9zo7G2wUK2CusxPwjy1USt_DyCFmmIe_y2pu8lAKBluImAHXXKHv4A/exec';
+  var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycby6J7xGChz7atOL6sVnbiWui8Z1lXVjeF8WUGTj3MXNgEn7EioTz8xZXb522vkAxkgeXA/exec';
   var SITE = 'emomap';
   try {
     if (location.search.indexOf('owner=1') !== -1) {
@@ -380,7 +380,7 @@ footer.slim p{max-width:520px;margin:0 auto 12px;font-size:.72rem}
                && location.protocol !== 'file:'
                && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
       var img = new Image();
-      img.src = WEBAPP_URL + '?ref=' + encodeURIComponent(SITE + '|' + (document.referrer || 'direct'));
+      img.src = WEBAPP_URL + '?t=pv&s='+encodeURIComponent(SITE)+'&p='+encodeURIComponent(location.pathname+location.hash)+'&r='+encodeURIComponent(document.referrer||'direct')+'&v='+encodeURIComponent((function(){try{var k='__vid__',v=localStorage.getItem(k);if(!v){v=Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem(k,v);}return v;}catch(e){return'';}})());
     }
   } catch (e) {}
 })();
