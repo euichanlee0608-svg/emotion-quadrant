@@ -52,7 +52,7 @@ min~max로 다시 스케일하므로 사분면이 비지 않는다. 축은 레�
   (`worker/emoquad_worker.py`, launchd `com.leechan.emoquadworker`)가 **가지러 온다**.
   서버→맥미니 방향은 불가능하므로 방향을 뒤집은 것 — 포트 개방·터널이 필요 없다.
   `claim`/`finish` 는 워커 토큰 전용. 토큰은 `worker/.env`(깃 제외) + `app_secrets`.
-  상주 비용 RSS 19MB·CPU ~0%(모델은 요청 때만 로드, 5분 뒤 해제)이라 상시 구동해도 부담 없다.
+  상주 비용 RSS ~11MB·CPU ~0%(모델은 요청 때만 로드, 5분 뒤 해제)이라 상시 구동해도 부담 없다.
 - 분석 결과는 텔레그램(COT봇)으로 알린다. 서버 처리분은 Edge Function 이, 로컬·폴백 처리분은
   클라이언트가 `{action:"notify"}` 로 중계한다(이 액션은 모델을 안 부르고 캡도 안 쓴다).
 - **브라우저 검증에서 실제 분석 버튼을 누르지 말 것**(유료 경로). UI 존재만 확인하고,
@@ -78,6 +78,7 @@ python3 source/build_data.py    # data.js 재생성 후 git diff 가 비어야 �
 
 ```bash
 python3 -m http.server 8777 &
+python3 -m venv /tmp/cdpvenv && /tmp/cdpvenv/bin/pip install websocket-client
 /tmp/cdpvenv/bin/python tests/browser_check.py http://127.0.0.1:8777/index.html
 ```
 
@@ -86,7 +87,7 @@ python3 -m http.server 8777 &
 
 ## 4. 레이아웃에서 조심할 것
 
-- **칩 배치는 두 단계다**: `pickWords`가 정규화 좌표로 최소 간격을 두고 고르고,
+- **칩 배치는 두 단계다**: `engine.layout()`이 정규화 좌표로 최소 간격을 두고 배치하고,
   `relaxChips`가 그려진 뒤 실제 픽셀로 클램프·분리한다. 겹침 문제를 정규화 상수
   (`SEP_X`/`SEP_Y`)만 키워서 해결하려 하지 말 것 — 칩 폭은 글자 수와 화면 폭에 따라 변한다.
 - `relaxChips`의 `GAP_Y`가 넉넉한 건 칩이 `bob` 애니메이션으로 최대 5px 흔들리기 때문이다.
@@ -108,7 +109,9 @@ python3 -m http.server 8777 &
 
 ## 5. 배포
 
-정적 사이트라 백엔드·API 키가 없다. GitHub Pages(main/root) + `.nojekyll`.
-방문 알림은 기존 GAS 비콘 공유(`ref` 접두사 `emomap|`), `file:`·localhost는 전송 스킵 —
-헤드리스 검증이 실제 텔레그램을 울리지 않게 하는 조건이니 지우지 말 것.
-푸터의 메인 포트폴리오 백링크도 유지한다(전역 지침 #11.7).
+프론트는 빌드 없는 정적 사이트라 프론트 코드에 API 키는 없다(분석 백엔드는 Supabase
+Edge Function — §1.6). GitHub Pages(main/root) + `.nojekyll`.
+방문 수집은 기존 GAS 비콘 공유(`ref` 접두사 `emomap|`, 방문은 쌓고 액션만 텔레그램 실시간),
+`file:`·localhost는 전송 스킵 — 헤드리스 검증이 방문 통계를 오염시키지 않게 하는 조건이니
+지우지 말 것.
+푸터의 메인 포트폴리오 백링크도 유지한다(전역 지침 #11.8).
