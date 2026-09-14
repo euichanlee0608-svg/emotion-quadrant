@@ -31,12 +31,20 @@ const keyOf = it => it.words ? it.name : it.w;
 /* 사용자에게는 진행중 / 완료 / 실패만 보여 준다.
    중간에 어떤 경로가 실패했는지, 무슨 모델이 처리했는지는 알 필요가 없고
    오히려 "실패했나?" 하고 불안해진다(실제 지적받음). 자세한 건 콘솔·텔레그램으로만 남는다. */
+/* 기다리는 동안 문구가 멈춰 있으면 고장난 줄 알고 떠난다(실제 지적받음).
+   평소 2~3초라 경과 시간에 따라 문구를 바꿔 '움직이고 있다'는 걸 보여 준다. */
+function busyText() {
+  if (S.step === 'queued') return '조금 오래 걸리고 있습니다 — 다른 방법으로 찾는 중입니다';
+  const s = (Date.now() - (S.t0 || Date.now())) / 1000;
+  if (s < 1.5) return '글을 읽는 중입니다… (보통 2~3초)';
+  if (s < 4)   return '434개 감정 단어와 맞춰 보는 중입니다…';
+  if (s < 9)   return '거의 다 됐습니다…';
+  return '평소보다 오래 걸리고 있습니다 — 조금만 기다려 주세요';
+}
+
 function viewStatus() {
   if (S.busy) {
-    const slow = S.step === 'queued';
-    return `<p class="status busy"><span class="spin"></span>${
-      slow ? '조금 오래 걸리고 있습니다 — 다른 방법으로 찾는 중입니다'
-           : '읽는 중입니다…'}</p>`;
+    return `<p class="status busy"><span class="spin"></span><span class="busy-msg">${busyText()}</span></p>`;
   }
   if (S.err) return `<p class="status fail">${esc(S.err)}</p>`;
   if (S.sug) return `<p class="status done">✓ 찾았습니다</p>`;
@@ -354,8 +362,12 @@ async function runAnalyze(inResult = false) {
   const ta = app.querySelector('#note');
   S.note = ta ? ta.value : S.note;
   if (S.note.trim().length < 4) { S.err = '조금만 더 적어 주세요 (네 글자 이상).'; render(); return; }
-  S.busy = true; S.err = ''; S.sug = null; S.pick = null; S.step = 'probe';
+  S.busy = true; S.err = ''; S.sug = null; S.pick = null; S.step = 'probe'; S.t0 = Date.now();
   render();
+  // 문구만 갈아 끼운다 — 전체 render 는 입력창·스크롤을 다시 그려 거슬린다
+  const tick = setInterval(() => {
+    app.querySelectorAll('.busy-msg').forEach(el => { el.textContent = busyText(); });
+  }, 500);
   try {
     S.sug = await analyze(S.note, {
       WORDS, localMatch,
@@ -364,6 +376,7 @@ async function runAnalyze(inResult = false) {
   } catch (e) {
     S.err = String((e && e.message) || e);
   }
+  clearInterval(tick);
   S.busy = false;
   S.scrollTarget = S.sug ? '#sug' : (inResult ? '.nl.compact' : '#nlsec');  // 답이 나오면 그쪽으로
   render();

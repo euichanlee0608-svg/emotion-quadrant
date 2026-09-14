@@ -11,6 +11,10 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } });
 
 const DAILY_CAP = 300;
+const GEMINI_MS = 8000;   // 시도 하나당 상한 — 느린 키 하나에 매달리지 않고 다음 키로 넘어간다
+
+// 응답을 돌려준 뒤에도 알림을 마저 보내게 한다(사용자가 텔레그램 왕복을 기다리지 않게)
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
 // 동작 확인용 텔레그램 알림(COT봇). 실패해도 사용자 응답은 막지 않는다.
 async function tell(db: ReturnType<typeof createClient>, lines: string[]) {
@@ -147,7 +151,11 @@ Deno.serve(async (req) => {
   if (text.length < 4) return json({ error: "글이 너무 짧습니다" }, 400);
   if (text.length > 400) text = text.slice(0, 400);
 
-  const { data: ok, error: capErr } = await db.rpc("emoquad_hit", { cap: DAILY_CAP });
+  // 캡 확인과 설정 조회는 서로 기다릴 이유가 없어 동시에 보낸다
+  const [{ data: ok, error: capErr }, { data: secrets }] = await Promise.all([
+    db.rpc("emoquad_hit", { cap: DAILY_CAP }),
+    db.from("app_secrets").select("key,value").in("key", ["gemini_keys", "gemini_models", "gemini_model"]),
+  ]);
   if (capErr) return json({ error: "사용량 확인 실패" }, 500);
   if (ok === false) {
     // 하루 캡 소진 — 이게 바로 맥미니가 필요한 상황이다
@@ -156,8 +164,6 @@ Deno.serve(async (req) => {
     return json({ error: "오늘 무료 사용량을 다 썼습니다. 내일 다시 시도해 주세요." }, 429);
   }
 
-  const { data: secrets } = await db.from("app_secrets").select("key,value")
-    .in("key", ["gemini_keys", "gemini_models", "gemini_model"]);
   const get = (k: string) => secrets?.find((s: { key: string }) => s.key === k)?.value ?? "";
 
   const keys = get("gemini_keys").split(",").map((s: string) => s.trim()).filter(Boolean);
@@ -174,6 +180,7 @@ Deno.serve(async (req) => {
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
           {
             method: "POST",
+            signal: AbortSignal.timeout(GEMINI_MS),
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               contents: [{ parts: [{ text: PROMPT(text) }] }],
@@ -190,10 +197,10 @@ Deno.serve(async (req) => {
           : [];
         if (!words.length) { lastErr = `${model} 목록 밖 응답`; continue; }
         const read = String(parsed?.read ?? "").slice(0, 120);
-        await tell(db, [
+        EdgeRuntime.waitUntil(tell(db, [
           `🫧 감정의 사분면 — ${VIA_LABEL.edge} (${model})`,
           ``, `입력: ${text}`, `읽음: ${read || "-"}`, `추천: ${words.join(", ")}`,
-        ]);
+        ]));
         return json({ read, words, model });
       } catch (e) {
         lastErr = String(e);
