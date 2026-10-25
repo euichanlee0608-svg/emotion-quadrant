@@ -20,8 +20,10 @@ declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 async function tell(db: ReturnType<typeof createClient>, lines: string[]) {
   try {
     const { data } = await db.from("app_secrets").select("key,value")
-      .in("key", ["telegram_notify_token", "telegram_owner_chat"]);
+      .in("key", ["telegram_notify_token", "telegram_owner_chat", "webapp_notify_off"]);
     const g = (k: string) => data?.find((x: { key: string }) => x.key === k)?.value ?? "";
+    // 웹앱 알림 킬스위치(COT봇 /webapp_kill) — 꺼진 앱이면 토큰을 비워 보내지 않는다. 단일 출처 app_secrets.webapp_notify_off
+    if (g("webapp_notify_off").split(",").map((x) => x.trim()).some((x) => x === "*" || x === "emomap")) return;
     const token = g("telegram_notify_token"), chat = g("telegram_owner_chat");
     if (!token || !chat) return;
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
