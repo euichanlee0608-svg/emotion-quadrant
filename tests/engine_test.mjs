@@ -117,6 +117,9 @@ for (const text of [
 }
 ok(localMatch('').length === 0, '빈 입력은 빈 결과');
 ok(localMatch('ㅋ').length === 0, '너무 짧은 입력은 빈 결과');
+// 겹치는 글자가 없으면 비어야 한다 — 예전엔 원형성 가산점만으로 '기쁘다·행복하다…'가 늘 채워져
+// 서버가 안 될 때 아무 글에나 엉뚱한 단어를 '찾았습니다'로 보여 줬다
+ok(localMatch('qwer zxcv asdf').length === 0, '겹치는 글자가 없는 입력은 빈 결과');
 
 console.log('\n--- 결과 ---');
 console.log(`대분류 ${FAMILIES.length} · 중분류 ${nSub} · 단어 434 (전부 3단계로 도달)`);

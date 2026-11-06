@@ -117,7 +117,7 @@ async function tryEdge(text) {
     body: JSON.stringify({ text }),
   }), EDGE_MS, '서버');
   const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error((j && j.error) || `서버 오류 ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error((j && j.error) || `서버 오류 ${r.status}`), { status: r.status });
   return j;
 }
 
@@ -158,6 +158,7 @@ export function notify(text, words, via) {
 export async function analyze(text, { WORDS, localMatch, onStep = () => {} }) {
   const list = WORDS.map(w => w.w).join(', ');
   const errs = [];
+  let edgeDown = false, edgeBusy = false;   // 실패 문구를 고르는 데만 쓴다(화면엔 경로·코드를 안 보인다)
 
   // 로컬에서 연 페이지라면 로컬 모델 먼저(토큰 0)
   onStep('probe');
@@ -188,7 +189,10 @@ export async function analyze(text, { WORDS, localMatch, onStep = () => {} }) {
       if (got) return { ...got, via: 'edge' };     // 서버가 알림까지 보낸다
       errs.push('서버가 목록 밖의 답을 냈습니다');
     }
-  } catch (e) { errs.push(String((e && e.message) || e)); }
+  } catch (e) {
+    edgeDown = true; edgeBusy = !!(e && e.status === 429);
+    errs.push(String((e && e.message) || e));
+  }
 
   // 마지막 폴백 — 순수 클라이언트 매칭
   const fb = localMatch(text);
@@ -196,5 +200,10 @@ export async function analyze(text, { WORDS, localMatch, onStep = () => {} }) {
     notify(text, fb, 'match');
     return { read: '', words: fb, via: 'match', errs };
   }
-  throw new Error('지금은 분석할 수 없습니다. 잠시 뒤 다시 시도해 주세요.');
+  // 화면에는 종류와 다음 행동만 — 쓴 글은 입력칸에 그대로 남아 있다. 자세한 사유는 콘솔에.
+  console.warn('[emoquad] 분석 실패', errs);
+  throw new Error(
+    edgeBusy ? '오늘은 이용이 많아 글을 읽지 못했습니다. 쓴 글은 그대로 두었으니 내일 다시 눌러 주세요. 지도에서 직접 고르는 건 지금도 됩니다.'
+    : edgeDown ? '연결이 원활하지 않아 글을 읽지 못했습니다. 쓴 글은 그대로 두었으니 잠시 뒤 다시 눌러 주세요. 지도에서 직접 고를 수도 있습니다.'
+    : '이 글에서는 맞는 감정 단어를 찾지 못했습니다. 상황이나 기분을 조금 더 적어서 다시 눌러 보세요.');
 }

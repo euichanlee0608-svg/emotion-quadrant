@@ -147,8 +147,8 @@ export function localMatch(text, topN = 6) {
     let hit = 0;
     for (const g of grams) if (hay.includes(g)) hit++;
     if (q.includes(w.w.replace(/다$/, ''))) hit += 6;   // 단어 자체가 문장에 들어 있으면 크게
-    return { w, score: hit / grams.size + w.p / 60 };   // 동점이면 더 흔한 말을 앞에
-  }).filter(s => s.score > 0.02);
+    return { w, m: hit / grams.size, score: hit / grams.size + w.p / 60 };   // 동점이면 더 흔한 말을 앞에
+  }).filter(s => s.m > 0.02);   // 거르는 건 겹친 정도로만 — 원형성 가산점(p/60 ≥ 0.03)까지 넣으면 아무 글이나 6개가 채워진다
 
   scored.sort((x, y) => y.score - x.score);
   return scored.slice(0, topN).map(s => s.w);
