@@ -6,7 +6,9 @@
 <title>감정의 사분면 — 내 마음에 이름 붙이기</title>
 <meta name="description" content="한국어 감정단어 434개(박인조·민경환, 2005)를 쾌-불쾌·활성화 두 축의 사분면에 놓고, 고를수록 좁혀 들어가며 지금 내 감정의 이름을 찾아가는 웹앱.">
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css">
+<!-- 글꼴 CSS 는 화면을 막지 않게 받는다 — CDN 이 느리거나 막히면 앱 전체가 빈 화면으로 멈춰 있었다(2026-11-07 실측). 그동안은 시스템 글꼴 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css"></noscript>
 <style>
 :root{
   --ink:#4a4048; --ink-soft:#8b7f88; --ink-faint:#b6abb3;
@@ -179,13 +181,14 @@ body::after{width:42vw;height:42vw;background:#dff0ff;bottom:-16vw;right:-12vw;a
   animation:sheetUp .32s var(--spring) both;
 }
 @keyframes sheetUp{from{opacity:0;transform:translate(-50%,26px)}to{opacity:1;transform:translate(-50%,0)}}
-.sheet-close{position:absolute;top:12px;right:14px;background:none;border:0;cursor:pointer;
-  font-size:1.1rem;line-height:1;color:var(--ink-faint);padding:4px 6px;border-radius:8px}
+/* 글자 자리는 그대로 두고 누를 수 있는 면적만 넓힌다(예전 25px — 폰에서 잘 안 눌렸다) */
+.sheet-close{position:absolute;top:4px;right:6px;background:none;border:0;cursor:pointer;
+  font-size:1.1rem;line-height:1;color:var(--ink-faint);padding:12px 14px;border-radius:12px}
 .sheet-close:hover{color:var(--ink);background:#f7eef3}
 /* 시트가 뜨면 그만큼 아래 여백을 줘서 보드가 가려지지 않게 한다 */
 body.sheet-open .wrap{padding-bottom:132px}
 @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
-.sheet h3{font-size:1.24rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px;padding-right:26px}
+.sheet h3{font-size:1.24rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px;padding-right:36px}
 .sheet .def{font-size:.9rem;line-height:1.65;color:var(--ink-soft);margin-bottom:4px}
 .sheet .meta{font-size:.72rem;color:var(--ink-faint);line-height:1.6;margin-bottom:12px}
 .sheet .acts{display:flex;gap:9px;flex-wrap:wrap}
@@ -365,7 +368,7 @@ footer.slim p{max-width:520px;margin:0 auto 12px;font-size:.72rem}
 <body>
 <div class="wrap"><div id="app"></div></div>
 
-<script type="module" src="./app.js?v=6"></script>
+<script type="module" src="./app.js?v=7"></script>
 <script>
 /* 방문 알림 비콘 — GAS→텔레그램 릴레이 (메모리 reference-website-visit-beacon-pattern).
    ref에 'emomap|' 접두사로 사이트 구분. ?owner=1 접속 시 이 브라우저는 이후 알림 제외.

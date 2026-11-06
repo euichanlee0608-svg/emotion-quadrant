@@ -371,7 +371,9 @@ async function runAnalyze(inResult = false) {
   try {
     S.sug = await analyze(S.note, {
       WORDS, localMatch,
-      onStep: k => { S.step = k; render(); },
+      // 단계만 기록한다 — 문구는 위 tick 이 갈아 끼운다. 여기서 render 하면 입력창이 다시 그려지고
+      // (쓰던 커서가 날아간다) 대기열 단계에선 3초마다 반복된다.
+      onStep: k => { S.step = k; },
     });
   } catch (e) {
     S.err = String((e && e.message) || e);
@@ -415,14 +417,16 @@ function onClick(e) {
     S.open = w; S.screen = 'map'; render();
     return;
   }
-  if (act === 'start')   { S.screen = 'map'; S.path = []; S.open = null; render(); return; }
+  if (act === 'start')   { S.screen = 'map'; S.path = []; S.open = null; S.err = ''; render(); return; }
   if (act === 'reset')   { const n = S.note, u = S.localUp; reset(); S.note = n; S.localUp = u; render(); return; }
   if (act === 'analyze') { runAnalyze(); return; }
   if (act === 'close')   { S.open = null; render(); return; }
   if (act === 'back') {
-    if (S.screen === 'final') { S.screen = 'map'; S.path = S.path.slice(0, LEVELS - 1); }
-    else S.path.pop();
-    S.open = null; render(); return;
+    // 결과에서 뒤로 = 마지막으로 고른 화면으로, 고른 것을 펼친 채 돌아간다
+    // (예전엔 2단계에서 멈춘 결과에서 '뒤로'를 누르면 오히려 한 단계 더 들어갔다)
+    if (S.screen === 'final') { S.screen = 'map'; S.open = S.path.pop(); }
+    else { S.path.pop(); S.open = null; }
+    render(); return;
   }
   if (act === 'dive' || act === 'stop') {
     const it = findItem(el.dataset.k);
@@ -484,22 +488,50 @@ function placeDrift() {
 }
 
 /* 스크롤로 들어오는 섹션을 부드럽게 띄운다(모션 최소화 설정은 CSS 에서 무시됨) */
+/* 한 번 떠오른 섹션은 기억해 둔다 — 인트로는 분석·제안 고르기 때마다 통째로 다시 그려지는데,
+   그때마다 보고 있던 섹션이 투명해졌다가 다시 떠올라 화면이 깜빡였다. */
 let io;
+const shown = new Set();
 function reveal() {
   const els = app.querySelectorAll('.reveal');
   if (!els.length) return;
   if (!io && 'IntersectionObserver' in window) {
     io = new IntersectionObserver(es => es.forEach(e => {
-      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      if (e.isIntersecting) { e.target.classList.add('in'); shown.add(e.target.dataset.ri); io.unobserve(e.target); }
     }), { threshold: 0.12 });
   }
-  els.forEach(el => io ? io.observe(el) : el.classList.add('in'));
+  els.forEach((el, i) => {
+    el.dataset.ri = i;
+    if (!io || shown.has(String(i))) el.classList.add('in');
+    else io.observe(el);
+  });
 }
 
 function scrollTo(sel, block = 'start') {
   const el = app.querySelector(sel);
   if (el) el.scrollIntoView({ behavior: 'smooth', block });
 }
+
+/* ---------------- 뒤로 가기·새로고침 ----------------
+   화면(인트로·지도 단계·결과)이 바뀔 때마다 history 에 한 칸 쌓는다. 없으면 폰의 뒤로 가기가
+   사이트를 통째로 빠져나가고(인스타 인앱 브라우저에선 앱이 닫힌 것처럼 보인다), 새로고침하면 처음으로 돌아간다.
+   주소는 바꾸지 않는다(방문 비콘이 pathname 을 쓴다). */
+const viewKey = () => S.screen + '|' + S.path.map(keyOf).join('>');
+const snap = () => ({ eq: 1, screen: S.screen, path: S.path.map(keyOf) });
+function restoreView(st) {
+  const path = [];
+  for (const k of st.path || []) {
+    if (path.length >= LEVELS) break;
+    const it = levelOf(path).items.find(x => keyOf(x) === k);
+    if (!it) break;
+    path.push(it);
+  }
+  S.open = null;
+  if (st.screen === 'final' && path.length) { S.screen = 'final'; S.path = path; }
+  else if (st.screen === 'map') { S.screen = 'map'; S.path = path.slice(0, LEVELS - 1); }
+  else { S.screen = 'intro'; S.path = []; }
+}
+let lastView = null, restoring = false;
 
 function render() {
   const body = S.screen === 'intro' ? viewIntro()
@@ -508,12 +540,20 @@ function render() {
   const foot = S.screen === 'intro' ? viewFooter()
              : S.screen === 'final' ? viewFooterSlim() : '';
   app.innerHTML = body + foot;
+  const vk = viewKey(), moved = vk !== lastView;
+  try {
+    if (moved && lastView !== null && !restoring) history.pushState(snap(), '');
+    else if (moved) history.replaceState(snap(), '');
+  } catch { /* history 를 못 쓰는 환경이면 예전처럼 동작 */ }
+  lastView = vk; restoring = false;
   document.body.classList.toggle('sheet-open', S.screen === 'map' && !!S.open);
   if (S.screen === 'map') relaxChips();
   if (S.scrollTarget) {
     const t = S.scrollTarget; S.scrollTarget = null;
     requestAnimationFrame(() => scrollTo(t, 'center'));
-  } else if (S.screen !== 'intro') {
+  } else if (moved) {
+    // 화면이 바뀔 때만 맨 위로. 같은 화면 안의 갱신(분석 중·제안 고르기·뜻 카드)까지 올려 버리면
+    // 결과 화면 아래쪽 입력칸에서 누른 상태·제안이 화면 밖으로 사라졌다.
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
   reveal();
@@ -528,7 +568,19 @@ if (app) {
     clearTimeout(rt);
     rt = setTimeout(() => { relaxChips(); if (S.screen === 'intro') placeDrift(); }, 120);
   });
+  // 글꼴이 늦게 도착하면 글자 폭이 바뀐다 — 칩 간격·배경 단어 자리를 한 번 더 잰다
+  if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => {
+    relaxChips(); if (S.screen === 'intro') placeDrift();
+  });
+  addEventListener('popstate', e => {
+    if (!e.state || !e.state.eq) return;
+    restoreView(e.state); restoring = true; render();
+  });
   reset();
+  try { history.scrollRestoration = 'manual'; } catch { /* 지원 안 하면 브라우저 기본 */ }
+  // 새로고침·앞뒤 이동으로 다시 열렸을 때만 보던 화면으로 돌아간다(주소를 새로 열면 늘 처음부터)
+  const nav = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0] || {}).type;
+  if ((nav === 'reload' || nav === 'back_forward') && history.state && history.state.eq) restoreView(history.state);
   render();
   // 로컬 모델이 있는지 미리 확인해 안내 문구를 맞춘다(실패해도 흐름에 영향 없음)
   probeLocal().then(up => { S.localUp = up; if (S.screen === 'intro' && !S.busy) render(); });
