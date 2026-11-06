@@ -57,9 +57,11 @@ const DRIFT = ['서운하다','후련하다','겸연쩍다','아련하다','울�
 
 function viewIntro() {
   const sug = S.sug;
+  // 사실대로 적는다 — 결과가 나오면 글이 동작 확인 알림으로 운영자에게 가고(로컬 처리분도 notify 로),
+  // 서버가 바쁠 땐 대기열에 잠시 저장된다. 예전 문구('저장하지 않습니다', '밖으로 나가지 않습니다')는 사실과 달랐다.
   const hint = S.localUp === true
-    ? '이 컴퓨터의 로컬 모델을 먼저 씁니다 — 글이 밖으로 나가지 않습니다'
-    : '입력한 글은 분석에만 쓰이고 저장하지 않습니다';
+    ? '이 컴퓨터의 로컬 모델을 먼저 씁니다'
+    : '적은 글은 운영자가 동작 확인용으로 볼 수 있습니다. 이름·연락처는 적지 마세요.';
 
   return `
   <div class="intro">
@@ -272,7 +274,7 @@ function viewFinal() {
       <div class="nl-row">
         <button class="btn sm" data-act="analyze2" ${S.busy ? 'disabled' : ''}>
           ${S.busy ? '읽는 중…' : '이 글에서 감정 찾아보기'}</button>
-        <span class="nl-hint">${esc(S.localUp === true ? '로컬 모델을 먼저 씁니다' : '입력한 글은 저장하지 않습니다')}</span>
+        <span class="nl-hint">${esc(S.localUp === true ? '로컬 모델을 먼저 씁니다' : '적은 글은 운영자가 동작 확인용으로 볼 수 있습니다. 이름·연락처는 적지 마세요.')}</span>
       </div>
       ${viewStatus()}
       ${S.sug ? viewSuggest(S.sug) : ''}
