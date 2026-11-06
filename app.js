@@ -286,7 +286,7 @@ function viewFooterSlim() {
     <p>평정값 출처 — 박인조·민경환 (2005), 「한국어 감정단어의 목록 작성과 차원 탐색」,
        <i>한국심리학회지: 사회 및 성격</i>, 19(1), 109–129.
        뜻풀이와 의미 분류는 이 사이트에서 붙였습니다. 심리 검사나 진단이 아닙니다.</p>
-    <a class="backlink" href="https://euichanlee0608-svg.github.io/">전체 포트폴리오 보기 →</a>
+    <a class="backlink" href="https://euichanlee0608-svg.github.io/workshop/">워크숍에서 더 보기 →</a>
   </footer>`;
 }
 
@@ -306,7 +306,7 @@ function viewFooter() {
     <p class="en">A Korean-only vocabulary tool: it walks a semantic tree over the 434 Korean emotion words
       compiled by Park &amp; Min (2005), plotting each step on a valence–arousal quadrant so the choices
       get more specific as you go.</p>
-    <a class="backlink" href="https://euichanlee0608-svg.github.io/">전체 포트폴리오 보기 →</a>
+    <a class="backlink" href="https://euichanlee0608-svg.github.io/workshop/">워크숍에서 더 보기 →</a>
   </footer>`;
 }
 
