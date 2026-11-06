@@ -184,6 +184,7 @@ export async function analyze(text, { WORDS, localMatch, onStep = () => {} }) {
       const got = done && toWords(done, WORDS);
       if (got) return { ...got, via: 'worker' };
       errs.push('대기열 처리에 실패했습니다');
+      edgeDown = true;   // 글 탓이 아니라 서버 쪽이 늦은 것 — '단어를 못 찾았다'로 안내하면 틀린다
     } else {
       const got = toWords(res, WORDS);
       if (got) return { ...got, via: 'edge' };     // 서버가 알림까지 보낸다
